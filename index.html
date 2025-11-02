@@ -12,7 +12,10 @@
     <p class="hint">Selecciona tu nombre y el rango de fechas. Las reglas se validan automáticamente (status=Pendiente).</p>
 
     <div class="card">
-      <label for="employee">Colaborador</label>
+      <label for="search">Buscar nombre</label>
+      <input type="text" id="search" placeholder="Escribe para filtrar…">
+
+      <label for="employee" style="margin-top:10px;">Colaborador</label>
       <select id="employee">
         <option value="">Cargando colaboradores…</option>
       </select>
@@ -38,11 +41,12 @@
     </details>
   </div>
 
+  <!-- Credenciales Supabase -->
   <script>
     window.SUPABASE_URL = "https://kbasekvgsevtwjypzznz.supabase.co";
     window.SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiYXNla3Znc2V2dHdqeXB6em56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIwNTg3NjUsImV4cCI6MjA3NzYzNDc2NX0.a38X1iS6xhlcoVlrjQ99BcoiVf9REMuVzYR82wYnWHY";
   </script>
   <script type="module" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm"></script>
-  <script type="module" src="main.js"></script>
+  <script type="module" src="main.js?v=11"></script>
 </body>
 </html>
