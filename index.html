@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vacaciones LIMSA 2026</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Solicitar Vacaciones 2026</h1>
+    <p class="hint">Selecciona tu nombre y el rango de fechas. Las reglas se validan automáticamente (status=Pendiente).</p>
+
+    <div class="card">
+      <label for="employee">Colaborador</label>
+      <select id="employee">
+        <option value="">Cargando colaboradores…</option>
+      </select>
+
+      <div class="grid">
+        <div>
+          <label for="start">Inicio</label>
+          <input type="date" id="start" required>
+        </div>
+        <div>
+          <label for="end">Fin</label>
+          <input type="date" id="end" required>
+        </div>
+      </div>
+
+      <button id="submit">Enviar solicitud</button>
+      <div id="msg" class="msg"></div>
+    </div>
+
+    <details class="card">
+      <summary>Ver mis solicitudes (2026)</summary>
+      <div id="my-requests"></div>
+    </details>
+  </div>
+
+  <script>
+    window.SUPABASE_URL = "https://TU-PROYECTO.supabase.co";
+    window.SUPABASE_ANON_KEY = "TU-ANON-KEY";
+  </script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm"></script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
