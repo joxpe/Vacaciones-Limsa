@@ -1,19 +1,20 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
 
-console.log("[Vacaciones] main.js cargado", window.SUPABASE_URL);
 const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
-const $emp   = document.getElementById('employee');
-const $start = document.getElementById('start');
-const $end   = document.getElementById('end');
-const $submit= document.getElementById('submit');
-const $msg   = document.getElementById('msg');
-const $my    = document.getElementById('my-requests');
+const $emp    = document.getElementById('employee');
+const $search = document.getElementById('search');
+const $start  = document.getElementById('start');
+const $end    = document.getElementById('end');
+const $submit = document.getElementById('submit');
+const $msg    = document.getElementById('msg');
+const $my     = document.getElementById('my-requests');
+
+let EMPLOYEES = [];   // cache completo
 
 function showMsg(text, ok=false){
   $msg.textContent = text;
   $msg.className = 'msg ' + (ok ? 'ok' : 'err');
-  console.log("[Vacaciones] MSG:", text);
 }
 
 function fmt(d){
@@ -21,28 +22,50 @@ function fmt(d){
   return dt.toLocaleDateString('es-MX', {day:'2-digit', month:'short', year:'numeric'});
 }
 
-async function loadEmployees(){
-  console.log("[Vacaciones] Cargando colaboradores por RPC...");
-  // RPC segura: employees_public() debe existir (SQL más abajo)
-  const { data, error } = await supabase.rpc('employees_public');
+// Normaliza texto: sin acentos y minúsculas
+function norm(s){
+  return (s || "")
+    .toString()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
 
-  if(error){
-    console.error("[Vacaciones] Error empleados:", error);
-    return showMsg('Error cargando colaboradores: ' + (error.message || JSON.stringify(error)));
-  }
-  const employees = data || [];
-  if(employees.length === 0){
-    console.warn("[Vacaciones] No hay colaboradores.");
-    $emp.innerHTML = '<option value="">(No hay colaboradores)</option>';
+// Renderiza opciones del select según lista filtrada
+function renderEmployees(list){
+  if(!list || list.length === 0){
+    $emp.innerHTML = '<option value="">(Sin coincidencias)</option>';
     return;
   }
   $emp.innerHTML = '<option value="">Selecciona tu nombre…</option>' +
-    employees.map(e => `<option value="${e.id}">${e.nombre}</option>`).join('');
-  console.log("[Vacaciones] Colaboradores:", employees.length);
+    list.map(e => `<option value="${e.id}">${e.nombre}</option>`).join('');
 }
 
+// Filtra por el texto del buscador
+function applyFilter(){
+  const q = norm($search.value);
+  if(!q){
+    renderEmployees(EMPLOYEES);
+    return;
+  }
+  const filtered = EMPLOYEES.filter(e => norm(e.nombre).includes(q));
+  renderEmployees(filtered);
+}
+
+// Carga colaboradores vía RPC segura
+async function loadEmployees(){
+  const { data, error } = await supabase.rpc('employees_public');
+  if(error){
+    showMsg('Error cargando colaboradores: ' + (error.message || JSON.stringify(error)));
+    return;
+  }
+  EMPLOYEES = data || [];
+  renderEmployees(EMPLOYEES);
+}
+
+// Carga mis solicitudes 2026
 async function loadMine(empId){
-  console.log("[Vacaciones] Cargando solicitudes de:", empId);
   $my.innerHTML = 'Cargando…';
   const { data, error } = await supabase
     .from('vacation_requests')
@@ -51,9 +74,7 @@ async function loadMine(empId){
     .gte('start_date', '2026-01-01')
     .lte('end_date', '2026-12-31')
     .order('start_date', { ascending: true });
-
   if(error){
-    console.error("[Vacaciones] Error mis solicitudes:", error);
     $my.textContent = 'Error: ' + (error.message || JSON.stringify(error));
     return;
   }
@@ -69,6 +90,20 @@ async function loadMine(empId){
   `).join('');
 }
 
+// Eventos
+$search.addEventListener('input', applyFilter);
+
+// Enter en buscador: si hay una coincidencia, la selecciona
+$search.addEventListener('keydown', (ev) => {
+  if(ev.key === 'Enter'){
+    const opts = $emp.querySelectorAll('option');
+    if(opts.length > 1 && opts[1].value){ // la primera es “Selecciona…”
+      $emp.value = opts[1].value;
+      $emp.dispatchEvent(new Event('change'));
+    }
+  }
+});
+
 $emp.addEventListener('change', e => {
   const id = e.target.value;
   if(id) loadMine(id);
@@ -79,21 +114,19 @@ $submit.addEventListener('click', async () => {
   const empId = $emp.value;
   const s = $start.value;
   const t = $end.value;
-
   if(!empId) return showMsg('Selecciona tu nombre.');
   if(!s || !t) return showMsg('Completa las fechas.');
   if(s > t) return showMsg('La fecha de inicio no puede ser posterior al fin.');
 
   const payload = { employee_id: empId, start_date: s, end_date: t, status: 'Pendiente' };
-  console.log("[Vacaciones] Insert:", payload);
-
   const { error } = await supabase.from('vacation_requests').insert(payload);
   if(error){
-    console.error("[Vacaciones] Error insert:", error);
-    return showMsg('No se pudo registrar: ' + (error.message || JSON.stringify(error)));
+    showMsg('No se pudo registrar: ' + (error.message || JSON.stringify(error)));
+    return;
   }
   showMsg('Solicitud registrada correctamente.', true);
   loadMine(empId);
 });
 
-loadEmployees().then(()=>console.log("[Vacaciones] UI lista"));
+// Inicio
+loadEmployees();
