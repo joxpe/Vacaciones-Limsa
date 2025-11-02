@@ -1,7 +1,7 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
 
 console.log("[Vacaciones] Iniciando...");
-const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+const supabase = createClient(window.https://kbasekvgsevtwjypzznz.supabase.co, window.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiYXNla3Znc2V2dHdqeXB6em56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIwNTg3NjUsImV4cCI6MjA3NzYzNDc2NX0.a38X1iS6xhlcoVlrjQ99BcoiVf9REMuVzYR82wYnWHY);
 
 const $emp = document.getElementById('employee');
 const $start = document.getElementById('start');
