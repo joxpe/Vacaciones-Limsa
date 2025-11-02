@@ -23,10 +23,14 @@ function fmt(d){
 
 async function loadEmployees(){
   console.log("[Vacaciones] Cargando colaboradores...");
-  // OPCIÓN 1: usando RPC (recomendado; ver SQL abajo)
+
+  // RECOMENDADO: usar la RPC segura (ver paso 2 abajo)
   const { data, error } = await supabase.rpc('employees_public');
-  // OPCIÓN 2: si no creaste la RPC, comenta lo de arriba y usa la tabla directa:
-  // const { data, error } = await supabase.from('employees').select('id, nombre').order('nombre', { ascending: true });
+
+  // Si AÚN no creas la RPC, comenta la línea de arriba y descomenta estas 3:
+  // const { data, error } = await supabase
+  //   .from('employees')
+  //   .select('id, nombre').order('nombre', { ascending: true });
 
   if(error){
     console.error("[Vacaciones] Error empleados:", error);
