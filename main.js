@@ -1,17 +1,19 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
 
+console.log("[Vacaciones] main.js cargado", window.SUPABASE_URL);
 const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
-const $emp = document.getElementById('employee');
+const $emp   = document.getElementById('employee');
 const $start = document.getElementById('start');
-const $end = document.getElementById('end');
-const $submit = document.getElementById('submit');
-const $msg = document.getElementById('msg');
-const $my = document.getElementById('my-requests');
+const $end   = document.getElementById('end');
+const $submit= document.getElementById('submit');
+const $msg   = document.getElementById('msg');
+const $my    = document.getElementById('my-requests');
 
 function showMsg(text, ok=false){
   $msg.textContent = text;
   $msg.className = 'msg ' + (ok ? 'ok' : 'err');
+  console.log("[Vacaciones] MSG:", text);
 }
 
 function fmt(d){
@@ -20,20 +22,27 @@ function fmt(d){
 }
 
 async function loadEmployees(){
-  const { data, error } = await supabase
-    .from('employees')
-    .select('id, nombre')
-    .order('nombre', { ascending: true });
+  console.log("[Vacaciones] Cargando colaboradores por RPC...");
+  // RPC segura: employees_public() debe existir (SQL más abajo)
+  const { data, error } = await supabase.rpc('employees_public');
+
   if(error){
-    showMsg('Error cargando colaboradores: ' + error.message);
-    return;
+    console.error("[Vacaciones] Error empleados:", error);
+    return showMsg('Error cargando colaboradores: ' + (error.message || JSON.stringify(error)));
   }
   const employees = data || [];
+  if(employees.length === 0){
+    console.warn("[Vacaciones] No hay colaboradores.");
+    $emp.innerHTML = '<option value="">(No hay colaboradores)</option>';
+    return;
+  }
   $emp.innerHTML = '<option value="">Selecciona tu nombre…</option>' +
     employees.map(e => `<option value="${e.id}">${e.nombre}</option>`).join('');
+  console.log("[Vacaciones] Colaboradores:", employees.length);
 }
 
 async function loadMine(empId){
+  console.log("[Vacaciones] Cargando solicitudes de:", empId);
   $my.innerHTML = 'Cargando…';
   const { data, error } = await supabase
     .from('vacation_requests')
@@ -42,8 +51,10 @@ async function loadMine(empId){
     .gte('start_date', '2026-01-01')
     .lte('end_date', '2026-12-31')
     .order('start_date', { ascending: true });
+
   if(error){
-    $my.textContent = 'Error: ' + error.message;
+    console.error("[Vacaciones] Error mis solicitudes:", error);
+    $my.textContent = 'Error: ' + (error.message || JSON.stringify(error));
     return;
   }
   if(!data || data.length === 0){
@@ -68,23 +79,21 @@ $submit.addEventListener('click', async () => {
   const empId = $emp.value;
   const s = $start.value;
   const t = $end.value;
+
   if(!empId) return showMsg('Selecciona tu nombre.');
   if(!s || !t) return showMsg('Completa las fechas.');
   if(s > t) return showMsg('La fecha de inicio no puede ser posterior al fin.');
 
-  const payload = {
-    employee_id: empId,
-    start_date: s,
-    end_date: t,
-    status: 'Pendiente' // valida duro en el trigger
-  };
+  const payload = { employee_id: empId, start_date: s, end_date: t, status: 'Pendiente' };
+  console.log("[Vacaciones] Insert:", payload);
+
   const { error } = await supabase.from('vacation_requests').insert(payload);
   if(error){
-    showMsg('No se pudo registrar: ' + error.message);
-    return;
+    console.error("[Vacaciones] Error insert:", error);
+    return showMsg('No se pudo registrar: ' + (error.message || JSON.stringify(error)));
   }
   showMsg('Solicitud registrada correctamente.', true);
   loadMine(empId);
 });
 
-loadEmployees();
+loadEmployees().then(()=>console.log("[Vacaciones] UI lista"));
