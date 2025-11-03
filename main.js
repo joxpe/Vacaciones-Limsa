@@ -14,6 +14,8 @@ const $empInfo = document.getElementById('emp-info');
 const $empBod  = document.getElementById('emp-bod');
 const $empIng  = document.getElementById('emp-ing');
 const $empCupo = document.getElementById('emp-cupo');
+const $empUsed = document.getElementById('emp-used');
+const $empLeft = document.getElementById('emp-left');
 
 let EMPLOYEES = [];
 let submitting = false;
@@ -55,9 +57,9 @@ function applyFilter(){
   renderEmployees(filtered);
 }
 
-/* ========= Cargas desde Supabase (RPCs con security definer) ========= */
+/* ========= RPCs ========= */
 
-// Colaboradores (ya creado: employees_public)
+// Colaboradores
 async function loadEmployees(){
   const { data, error } = await supabase.rpc('employees_public');
   if(error){
@@ -68,22 +70,37 @@ async function loadEmployees(){
   renderEmployees(EMPLOYEES);
 }
 
-// Info del colaborador (ya creado: employees_info(emp_id))
-async function loadEmpInfo(empId){
-  const { data, error } = await supabase.rpc('employees_info', { emp_id: empId });
-  if(error){
-    showMsg('No se pudo leer la info del colaborador: ' + (error.message || JSON.stringify(error)));
+// Info básica (bodega/ingreso/cupo) y resumen (usado/restante)
+async function loadEmpHeader(empId){
+  // employees_info: bodega, fecha_ingreso, cupo_2026
+  const [infoRes, sumRes] = await Promise.all([
+    supabase.rpc('employees_info', { emp_id: empId }),
+    supabase.rpc('employees_vac_summary_2026', { emp_id: empId })
+  ]);
+
+  if(infoRes.error){
+    showMsg('No se pudo leer la info del colaborador: ' + (infoRes.error.message || JSON.stringify(infoRes.error)));
     return;
   }
-  const row = (data && data[0]) ? data[0] : null;
-  if(!row){ $empInfo.hidden = true; return; }
-  $empBod.textContent  = row.bodega ?? '—';
-  $empIng.textContent  = row.fecha_ingreso ? fmtYMD(row.fecha_ingreso) : '—';
-  $empCupo.textContent = (row.cupo_2026 ?? '—');
+  const info = (infoRes.data && infoRes.data[0]) ? infoRes.data[0] : null;
+
+  if(sumRes.error){
+    showMsg('No se pudo leer el resumen de vacaciones: ' + (sumRes.error.message || JSON.stringify(sumRes.error)));
+    return;
+  }
+  const sum = (sumRes.data && sumRes.data[0]) ? sumRes.data[0] : { cupo_2026: null, usado_2026: null, restante_2026: null };
+
+  if(!info){ $empInfo.hidden = true; return; }
+
+  $empBod.textContent  = info.bodega ?? '—';
+  $empIng.textContent  = info.fecha_ingreso ? fmtYMD(info.fecha_ingreso) : '—';
+  $empCupo.textContent = (info.cupo_2026 ?? '—');
+  $empUsed.textContent = (sum.usado_2026 ?? '—');
+  $empLeft.textContent = (sum.restante_2026 ?? '—');
   $empInfo.hidden = false;
 }
 
-// Solicitudes del colaborador (nueva: vacation_requests_get(emp_id))
+// Mis solicitudes (con días hábiles por renglón)
 async function loadMine(empId){
   $my.innerHTML = 'Cargando…';
   const { data, error } = await supabase.rpc('vacation_requests_get', { emp_id: empId });
@@ -91,7 +108,6 @@ async function loadMine(empId){
     $my.textContent = 'Error: ' + (error.message || JSON.stringify(error));
     return;
   }
-  // Filtrar a 2026 por si la RPC regresa todo el historial
   const list = (data || []).filter(r => {
     const ys = Number(r.start_date?.toString().slice(0,4));
     const ye = Number(r.end_date?.toString().slice(0,4));
@@ -103,7 +119,7 @@ async function loadMine(empId){
   }
   $my.innerHTML = list.map(r => `
     <div class="req">
-      <div><strong>${fmtYMD(r.start_date)} → ${fmtYMD(r.end_date)}</strong></div>
+      <div><strong>${fmtYMD(r.start_date)} → ${fmtYMD(r.end_date)} (${r.biz_days} días)</strong></div>
       <small>Estado: ${r.status}</small>
     </div>
   `).join('');
@@ -126,8 +142,8 @@ $search.addEventListener('keydown', (ev) => {
 $emp.addEventListener('change', async (e) => {
   const id = e.target.value;
   if(id){
-    await loadEmpInfo(id);
-    loadMine(id);
+    await loadEmpHeader(id);   // bodega/ingreso/cupo/usado/restante
+    loadMine(id);              // solicitudes con días hábiles
   } else {
     $my.innerHTML = '';
     $empInfo.hidden = true;
@@ -137,18 +153,16 @@ $emp.addEventListener('change', async (e) => {
 $submit.addEventListener('click', async () => {
   if(submitting) return;
   const empId = $emp.value;
-  const s = $start.value; // YYYY-MM-DD
-  const t = $end.value;   // YYYY-MM-DD
+  const s = $start.value;
+  const t = $end.value;
   if(!empId) return showMsg('Selecciona tu nombre.');
   if(!s || !t) return showMsg('Completa las fechas.');
   if(s > t) return showMsg('La fecha de inicio no puede ser posterior al fin.');
 
   submitting = true; $submit.disabled = true; showMsg('Enviando…', true);
 
-  // Inserción por RPC (nueva: vacation_requests_create(emp_id uuid, s date, e date))
-  const { data, error } = await supabase.rpc('vacation_requests_create', {
-    emp_id: empId, s, e: t
-  });
+  // Inserción por RPC (ya creada): vacation_requests_create(emp_id, s, e)
+  const { error } = await supabase.rpc('vacation_requests_create', { emp_id: empId, s, e: t });
 
   submitting = false; $submit.disabled = false;
 
@@ -157,7 +171,10 @@ $submit.addEventListener('click', async () => {
     return;
   }
   showMsg('Solicitud registrada correctamente.', true);
-  loadMine(empId);
+
+  // Refresca solicitudes y resumen para ver la "resta" actualizada
+  await loadMine(empId);
+  await loadEmpHeader(empId);
 });
 
 /* ========= Inicio ========= */
