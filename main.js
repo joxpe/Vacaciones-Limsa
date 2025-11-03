@@ -10,7 +10,13 @@ const $submit = document.getElementById('submit');
 const $msg    = document.getElementById('msg');
 const $my     = document.getElementById('my-requests');
 
-let EMPLOYEES = [];   // cache completo
+const $empInfo = document.getElementById('emp-info');
+const $empBod  = document.getElementById('emp-bod');
+const $empIng  = document.getElementById('emp-ing');
+const $empCupo = document.getElementById('emp-cupo');
+
+let EMPLOYEES = [];
+let submitting = false;
 
 function showMsg(text, ok=false){
   $msg.textContent = text;
@@ -22,17 +28,10 @@ function fmt(d){
   return dt.toLocaleDateString('es-MX', {day:'2-digit', month:'short', year:'numeric'});
 }
 
-// Normaliza texto: sin acentos y minúsculas
 function norm(s){
-  return (s || "")
-    .toString()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
+  return (s || "").toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 }
 
-// Renderiza opciones del select según lista filtrada
 function renderEmployees(list){
   if(!list || list.length === 0){
     $emp.innerHTML = '<option value="">(Sin coincidencias)</option>';
@@ -42,29 +41,36 @@ function renderEmployees(list){
     list.map(e => `<option value="${e.id}">${e.nombre}</option>`).join('');
 }
 
-// Filtra por el texto del buscador
 function applyFilter(){
   const q = norm($search.value);
-  if(!q){
-    renderEmployees(EMPLOYEES);
-    return;
-  }
+  if(!q){ renderEmployees(EMPLOYEES); return; }
   const filtered = EMPLOYEES.filter(e => norm(e.nombre).includes(q));
   renderEmployees(filtered);
 }
 
-// Carga colaboradores vía RPC segura
 async function loadEmployees(){
   const { data, error } = await supabase.rpc('employees_public');
-  if(error){
-    showMsg('Error cargando colaboradores: ' + (error.message || JSON.stringify(error)));
-    return;
-  }
+  if(error){ showMsg('Error cargando colaboradores: ' + (error.message || JSON.stringify(error))); return; }
   EMPLOYEES = data || [];
   renderEmployees(EMPLOYEES);
 }
 
-// Carga mis solicitudes 2026
+function showEmpInfo(row){
+  if(!row){ $empInfo.hidden = true; return; }
+  $empBod.textContent  = row.bodega ?? '—';
+  $empIng.textContent  = row.fecha_ingreso ? fmt(row.fecha_ingreso) : '—';
+  $empCupo.textContent = (row.cupo_2026 ?? '—');
+  $empInfo.hidden = false;
+}
+
+async function loadEmpInfo(empId){
+  // RPC que ya creamos: employees_info(emp_id uuid)
+  const { data, error } = await supabase.rpc('employees_info', { emp_id: empId });
+  if(error){ showMsg('No se pudo leer la info del colaborador: ' + (error.message || JSON.stringify(error))); return; }
+  const row = (data && data[0]) ? data[0] : null;
+  showEmpInfo(row);
+}
+
 async function loadMine(empId){
   $my.innerHTML = 'Cargando…';
   const { data, error } = await supabase
@@ -74,14 +80,8 @@ async function loadMine(empId){
     .gte('start_date', '2026-01-01')
     .lte('end_date', '2026-12-31')
     .order('start_date', { ascending: true });
-  if(error){
-    $my.textContent = 'Error: ' + (error.message || JSON.stringify(error));
-    return;
-  }
-  if(!data || data.length === 0){
-    $my.textContent = 'Sin solicitudes para 2026.';
-    return;
-  }
+  if(error){ $my.textContent = 'Error: ' + (error.message || JSON.stringify(error)); return; }
+  if(!data || data.length === 0){ $my.textContent = 'Sin solicitudes para 2026.'; return; }
   $my.innerHTML = data.map(r => `
     <div class="req">
       <div><strong>${fmt(r.start_date)} → ${fmt(r.end_date)}</strong></div>
@@ -92,25 +92,29 @@ async function loadMine(empId){
 
 // Eventos
 $search.addEventListener('input', applyFilter);
-
-// Enter en buscador: si hay una coincidencia, la selecciona
 $search.addEventListener('keydown', (ev) => {
   if(ev.key === 'Enter'){
     const opts = $emp.querySelectorAll('option');
-    if(opts.length > 1 && opts[1].value){ // la primera es “Selecciona…”
+    if(opts.length > 1 && opts[1].value){
       $emp.value = opts[1].value;
       $emp.dispatchEvent(new Event('change'));
     }
   }
 });
 
-$emp.addEventListener('change', e => {
+$emp.addEventListener('change', async (e) => {
   const id = e.target.value;
-  if(id) loadMine(id);
-  else $my.innerHTML = '';
+  if(id){
+    await loadEmpInfo(id);
+    loadMine(id);
+  } else {
+    $my.innerHTML = '';
+    showEmpInfo(null);
+  }
 });
 
 $submit.addEventListener('click', async () => {
+  if(submitting) return;
   const empId = $emp.value;
   const s = $start.value;
   const t = $end.value;
@@ -118,12 +122,12 @@ $submit.addEventListener('click', async () => {
   if(!s || !t) return showMsg('Completa las fechas.');
   if(s > t) return showMsg('La fecha de inicio no puede ser posterior al fin.');
 
+  submitting = true; $submit.disabled = true; showMsg('Enviando…', true);
   const payload = { employee_id: empId, start_date: s, end_date: t, status: 'Pendiente' };
   const { error } = await supabase.from('vacation_requests').insert(payload);
-  if(error){
-    showMsg('No se pudo registrar: ' + (error.message || JSON.stringify(error)));
-    return;
-  }
+  submitting = false; $submit.disabled = false;
+
+  if(error){ showMsg('No se pudo registrar: ' + (error.message || JSON.stringify(error))); return; }
   showMsg('Solicitud registrada correctamente.', true);
   loadMine(empId);
 });
