@@ -18,6 +18,7 @@ const $empUsed = document.getElementById('emp-used');
 const $empLeft = document.getElementById('emp-left');
 
 let EMPLOYEES = [];
+let CURRENT_EMP_ID = null;
 let submitting = false;
 
 /* ========= Fechas sin desfase de zona ========= */
@@ -72,7 +73,6 @@ async function loadEmployees(){
 
 // Info básica (bodega/ingreso/cupo) y resumen (usado/restante)
 async function loadEmpHeader(empId){
-  // employees_info: bodega, fecha_ingreso, cupo_2026
   const [infoRes, sumRes] = await Promise.all([
     supabase.rpc('employees_info', { emp_id: empId }),
     supabase.rpc('employees_vac_summary_2026', { emp_id: empId })
@@ -118,9 +118,12 @@ async function loadMine(empId){
     return;
   }
   $my.innerHTML = list.map(r => `
-    <div class="req">
-      <div><strong>${fmtYMD(r.start_date)} → ${fmtYMD(r.end_date)} (${r.biz_days} días)</strong></div>
-      <small>Estado: ${r.status}</small>
+    <div class="req" data-id="${r.id}">
+      <div class="req-main">
+        <div><strong>${fmtYMD(r.start_date)} → ${fmtYMD(r.end_date)} (${r.biz_days} días)</strong></div>
+        <small>Estado: ${r.status}</small>
+      </div>
+      ${r.status === 'Pendiente' ? `<button class="btn-del" data-id="${r.id}" title="Eliminar solicitud">Eliminar</button>` : ''}
     </div>
   `).join('');
 }
@@ -141,6 +144,7 @@ $search.addEventListener('keydown', (ev) => {
 
 $emp.addEventListener('change', async (e) => {
   const id = e.target.value;
+  CURRENT_EMP_ID = id || null;
   if(id){
     await loadEmpHeader(id);   // bodega/ingreso/cupo/usado/restante
     loadMine(id);              // solicitudes con días hábiles
@@ -161,7 +165,7 @@ $submit.addEventListener('click', async () => {
 
   submitting = true; $submit.disabled = true; showMsg('Enviando…', true);
 
-  // Inserción por RPC (ya creada): vacation_requests_create(emp_id, s, e)
+  // Inserción por RPC
   const { error } = await supabase.rpc('vacation_requests_create', { emp_id: empId, s, e: t });
 
   submitting = false; $submit.disabled = false;
@@ -172,9 +176,42 @@ $submit.addEventListener('click', async () => {
   }
   showMsg('Solicitud registrada correctamente.', true);
 
-  // Refresca solicitudes y resumen para ver la "resta" actualizada
+  // Refresca solicitudes y resumen
   await loadMine(empId);
   await loadEmpHeader(empId);
+});
+
+/* Delegación de click para eliminar solicitudes pendientes */
+$my.addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('.btn-del');
+  if(!btn) return;
+
+  const reqId = btn.getAttribute('data-id');
+  if(!reqId || !CURRENT_EMP_ID) return;
+
+  const ok = confirm('¿Eliminar esta solicitud pendiente?');
+  if(!ok) return;
+
+  btn.disabled = true;
+
+  const { data, error } = await supabase.rpc('vacation_requests_delete', {
+    req_id: reqId, emp_id: CURRENT_EMP_ID
+  });
+
+  btn.disabled = false;
+
+  if(error){
+    showMsg('No se pudo eliminar: ' + (error.message || JSON.stringify(error)));
+    return;
+  }
+  if(!data){
+    showMsg('No se eliminó (verifica que esté Pendiente y sea tuya).');
+    return;
+  }
+
+  showMsg('Solicitud eliminada.', true);
+  await loadMine(CURRENT_EMP_ID);
+  await loadEmpHeader(CURRENT_EMP_ID);
 });
 
 /* ========= Inicio ========= */
