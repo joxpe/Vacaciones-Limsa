@@ -100,3 +100,19 @@ details.card summary {
   .grid { grid-template-columns: 1fr; }
   .container { margin: 24px auto; }
 }
+
+.emp-info{
+  display:grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap:12px;
+  padding:10px;
+  margin:10px 0 6px;
+  border:1px dashed #cfd3dc;
+  border-radius:10px;
+  background:#fbfcff;
+  font-size:14px;
+}
+@media (max-width: 560px){
+  .emp-info{ grid-template-columns: 1fr; }
+}
+
