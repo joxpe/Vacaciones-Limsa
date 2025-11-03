@@ -109,3 +109,24 @@ details.card summary {
   .container { margin: 24px auto; }
   .emp-info { grid-template-columns: 1fr; }
 }
+/* Dentro de tu styles.css */
+
+.req {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+.req .btn-del {
+  background: #991b1b;     /* rojo oscuro */
+  color: #fff;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.req .btn-del:hover { background: #7f1515; }
+.req .btn-del:disabled { opacity: .6; cursor: not-allowed; }
+
