@@ -44,9 +44,7 @@ input[type="text"]:focus {
 }
 
 /* Buscador */
-#search {
-  margin-bottom: 8px;
-}
+#search { margin-bottom: 8px; }
 
 /* Layout de fechas */
 .grid {
@@ -68,10 +66,7 @@ button {
 }
 button:hover { background: #1b337a; }
 button:active { transform: translateY(1px); }
-button:disabled {
-  opacity: .6;
-  cursor: not-allowed;
-}
+button:disabled { opacity: .6; cursor: not-allowed; }
 
 /* Mensajes */
 .msg { margin-top: 12px; font-size: 14px; min-height: 18px; }
@@ -95,24 +90,22 @@ details.card summary {
   user-select: none;
 }
 
+/* Info del empleado */
+.emp-info{
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  padding: 10px;
+  margin: 10px 0 6px;
+  border: 1px dashed #cfd3dc;
+  border-radius: 10px;
+  background: #fbfcff;
+  font-size: 14px;
+}
+
 /* Responsive */
 @media (max-width: 560px) {
   .grid { grid-template-columns: 1fr; }
   .container { margin: 24px auto; }
+  .emp-info { grid-template-columns: 1fr; }
 }
-
-.emp-info{
-  display:grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap:12px;
-  padding:10px;
-  margin:10px 0 6px;
-  border:1px dashed #cfd3dc;
-  border-radius:10px;
-  background:#fbfcff;
-  font-size:14px;
-}
-@media (max-width: 560px){
-  .emp-info{ grid-template-columns: 1fr; }
-}
-
