@@ -18,16 +18,26 @@ const $empCupo = document.getElementById('emp-cupo');
 let EMPLOYEES = [];
 let submitting = false;
 
+// === Formateadores de fecha ===
+
+// Formatea 'YYYY-MM-DD' como fecha local española, SIN desfase de zona (usa UTC puro)
+function fmtYMD(ymd){
+  if (!ymd) return '—';
+  // ymd puede llegar como string 'YYYY-MM-DD' o Date; convertimos siempre vía split
+  const parts = ymd.toString().split('-').map(Number);
+  const y = parts[0], m = parts[1] || 1, d = parts[2] || 1;
+  const dt = new Date(Date.UTC(y, m - 1, d)); // UTC “puro”
+  return dt.toLocaleDateString('es-MX', {
+    day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC'
+  });
+}
+
 function showMsg(text, ok=false){
   $msg.textContent = text;
   $msg.className = 'msg ' + (ok ? 'ok' : 'err');
 }
 
-function fmt(d){
-  const dt = new Date(d);
-  return dt.toLocaleDateString('es-MX', {day:'2-digit', month:'short', year:'numeric'});
-}
-
+// Normalizador (quita acentos y pasa a minúsculas)
 function norm(s){
   return (s || "").toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 }
@@ -48,9 +58,15 @@ function applyFilter(){
   renderEmployees(filtered);
 }
 
+// === Datos desde Supabase ===
+
 async function loadEmployees(){
+  // RPC segura que ya creaste: employees_public()
   const { data, error } = await supabase.rpc('employees_public');
-  if(error){ showMsg('Error cargando colaboradores: ' + (error.message || JSON.stringify(error))); return; }
+  if(error){
+    showMsg('Error cargando colaboradores: ' + (error.message || JSON.stringify(error)));
+    return;
+  }
   EMPLOYEES = data || [];
   renderEmployees(EMPLOYEES);
 }
@@ -58,15 +74,18 @@ async function loadEmployees(){
 function showEmpInfo(row){
   if(!row){ $empInfo.hidden = true; return; }
   $empBod.textContent  = row.bodega ?? '—';
-  $empIng.textContent  = row.fecha_ingreso ? fmt(row.fecha_ingreso) : '—';
+  $empIng.textContent  = row.fecha_ingreso ? fmtYMD(row.fecha_ingreso) : '—';
   $empCupo.textContent = (row.cupo_2026 ?? '—');
   $empInfo.hidden = false;
 }
 
 async function loadEmpInfo(empId){
-  // RPC que ya creamos: employees_info(emp_id uuid)
+  // RPC segura: employees_info(emp_id uuid) — devuelve bodega, ingreso, cupo_2026
   const { data, error } = await supabase.rpc('employees_info', { emp_id: empId });
-  if(error){ showMsg('No se pudo leer la info del colaborador: ' + (error.message || JSON.stringify(error))); return; }
+  if(error){
+    showMsg('No se pudo leer la info del colaborador: ' + (error.message || JSON.stringify(error)));
+    return;
+  }
   const row = (data && data[0]) ? data[0] : null;
   showEmpInfo(row);
 }
@@ -80,18 +99,26 @@ async function loadMine(empId){
     .gte('start_date', '2026-01-01')
     .lte('end_date', '2026-12-31')
     .order('start_date', { ascending: true });
-  if(error){ $my.textContent = 'Error: ' + (error.message || JSON.stringify(error)); return; }
-  if(!data || data.length === 0){ $my.textContent = 'Sin solicitudes para 2026.'; return; }
+  if(error){
+    $my.textContent = 'Error: ' + (error.message || JSON.stringify(error));
+    return;
+  }
+  if(!data || data.length === 0){
+    $my.textContent = 'Sin solicitudes para 2026.';
+    return;
+  }
   $my.innerHTML = data.map(r => `
     <div class="req">
-      <div><strong>${fmt(r.start_date)} → ${fmt(r.end_date)}</strong></div>
+      <div><strong>${fmtYMD(r.start_date)} → ${fmtYMD(r.end_date)}</strong></div>
       <small>Estado: ${r.status}</small>
     </div>
   `).join('');
 }
 
-// Eventos
+// === Eventos UI ===
+
 $search.addEventListener('input', applyFilter);
+
 $search.addEventListener('keydown', (ev) => {
   if(ev.key === 'Enter'){
     const opts = $emp.querySelectorAll('option');
@@ -127,7 +154,10 @@ $submit.addEventListener('click', async () => {
   const { error } = await supabase.from('vacation_requests').insert(payload);
   submitting = false; $submit.disabled = false;
 
-  if(error){ showMsg('No se pudo registrar: ' + (error.message || JSON.stringify(error))); return; }
+  if(error){
+    showMsg('No se pudo registrar: ' + (error.message || JSON.stringify(error)));
+    return;
+  }
   showMsg('Solicitud registrada correctamente.', true);
   loadMine(empId);
 });
