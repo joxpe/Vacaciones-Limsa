@@ -2,44 +2,46 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
-const $emp    = document.getElementById('employee');
-const $search = document.getElementById('search');
-const $start  = document.getElementById('start');
-const $end    = document.getElementById('end');
-const $submit = document.getElementById('submit');
-const $msg    = document.getElementById('msg');
-const $my     = document.getElementById('my-requests');
-
+// Elementos
+const $emp     = document.getElementById('employee');
+const $search  = document.getElementById('search');
+const $start   = document.getElementById('start');
+const $end     = document.getElementById('end');
+const $submit  = document.getElementById('submit');
+const $msg     = document.getElementById('msg');
+const $my      = document.getElementById('my-requests');
 const $empInfo = document.getElementById('emp-info');
-const $empBod  = document.getElementById('emp-bod');
-const $empIng  = document.getElementById('emp-ing');
-const $empCupo = document.getElementById('emp-cupo');
-const $empUsed = document.getElementById('emp-used');
-const $empLeft = document.getElementById('emp-left');
 
-let EMPLOYEES = [];
-let CURRENT_EMP_ID = null;
-let submitting = false;
+const $loc      = document.getElementById('v-localizacion');
+const $dep      = document.getElementById('v-departamento');
+const $bod      = document.getElementById('v-bodega');
+const $ingreso  = document.getElementById('v-ingreso');
+const $cupo     = document.getElementById('v-cupo');
+const $usado    = document.getElementById('v-usado');
+const $restante = document.getElementById('v-restante');
 
-/* ========= Fechas sin desfase de zona ========= */
-function fmtYMD(ymd){
-  if (!ymd) return '—';
-  const parts = ymd.toString().split('-').map(Number);
-  const y = parts[0], m = parts[1] || 1, d = parts[2] || 1;
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  return dt.toLocaleDateString('es-MX', {
-    day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC'
-  });
-}
+let EMPLOYEES = []; // cache
 
-/* ========= Utilidades UI ========= */
+// Utils
 function showMsg(text, ok=false){
   $msg.textContent = text;
   $msg.className = 'msg ' + (ok ? 'ok' : 'err');
 }
 
+function fmt(d){
+  if(!d) return '-';
+  const dt = new Date(d);
+  // Forzar UTC-safe para evitar tz: tomar como fecha "pura"
+  return dt.toLocaleDateString('es-MX', { day:'2-digit', month:'short', year:'numeric' });
+}
+
 function norm(s){
-  return (s || "").toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  return (s || "")
+    .toString()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
 }
 
 function renderEmployees(list){
@@ -58,78 +60,156 @@ function applyFilter(){
   renderEmployees(filtered);
 }
 
-/* ========= RPCs ========= */
-
-// Colaboradores
+// Carga colaboradores (RPC recomendada). Si no existe, hace fallback a SELECT directo.
 async function loadEmployees(){
-  const { data, error } = await supabase.rpc('employees_public');
+  // Intenta por RPC
+  let data = null, error = null;
+  const rpc = await supabase.rpc('employees_public');
+  if(!rpc.error && rpc.data){
+    data = rpc.data;
+  } else {
+    // Fallback
+    const res = await supabase
+      .from('employees')
+      .select('id, nombre, bodega, departamento, localizacion')
+      .order('nombre', { ascending: true });
+    data = res.data; error = res.error;
+  }
+
   if(error){
     showMsg('Error cargando colaboradores: ' + (error.message || JSON.stringify(error)));
     return;
   }
-  EMPLOYEES = data || [];
+  EMPLOYEES = (data || []).map(r => ({
+    id: r.id,
+    nombre: r.nombre,
+    bodega: r.bodega ?? null,
+    departamento: r.departamento ?? null,
+    localizacion: r.localizacion ?? null
+  }));
   renderEmployees(EMPLOYEES);
 }
 
-// Info básica (bodega/ingreso/cupo) y resumen (usado/restante)
-async function loadEmpHeader(empId){
-  const [infoRes, sumRes] = await Promise.all([
-    supabase.rpc('employees_info', { emp_id: empId }),
-    supabase.rpc('employees_vac_summary_2026', { emp_id: empId })
-  ]);
+// Lee panel informativo (bodega, depto, localización, ingreso y cupos)
+async function loadEmployeeInfo(empId){
+  // Info base + cupo
+  const { data: infoArr, error: e1 } = await supabase.rpc('employees_info', { emp_id: empId });
+  if(e1){ showMsg('No se pudo leer información del colaborador: ' + e1.message); return; }
+  const info = (infoArr && infoArr[0]) ? infoArr[0] : null;
 
-  if(infoRes.error){
-    showMsg('No se pudo leer la info del colaborador: ' + (infoRes.error.message || JSON.stringify(infoRes.error)));
-    return;
-  }
-  const info = (infoRes.data && infoRes.data[0]) ? infoRes.data[0] : null;
+  // Resumen de usados/restante
+  const { data: sumArr, error: e2 } = await supabase.rpc('employees_vac_summary_2026', { emp_id: empId });
+  if(e2){ showMsg('No se pudo leer el resumen de vacaciones: ' + e2.message); return; }
+  const summary = (sumArr && sumArr[0]) ? sumArr[0] : { usado_2026: 0, restante_2026: 0, cupo_2026: 0 };
 
-  if(sumRes.error){
-    showMsg('No se pudo leer el resumen de vacaciones: ' + (sumRes.error.message || JSON.stringify(sumRes.error)));
-    return;
-  }
-  const sum = (sumRes.data && sumRes.data[0]) ? sumRes.data[0] : { cupo_2026: null, usado_2026: null, restante_2026: null };
+  // Pinta
+  $loc.textContent      = info?.localizacion ?? '-';
+  $dep.textContent      = info?.departamento ?? '-';
+  $bod.textContent      = info?.bodega ?? '-';
+  $ingreso.textContent  = fmt(info?.fecha_ingreso);
+  $cupo.textContent     = (info?.cupo_2026 ?? summary?.cupo_2026 ?? 0);
+  $usado.textContent    = (summary?.usado_2026 ?? 0);
+  $restante.textContent = (summary?.restante_2026 ?? 0);
 
-  if(!info){ $empInfo.hidden = true; return; }
-
-  $empBod.textContent  = info.bodega ?? '—';
-  $empIng.textContent  = info.fecha_ingreso ? fmtYMD(info.fecha_ingreso) : '—';
-  $empCupo.textContent = (info.cupo_2026 ?? '—');
-  $empUsed.textContent = (sum.usado_2026 ?? '—');
-  $empLeft.textContent = (sum.restante_2026 ?? '—');
   $empInfo.hidden = false;
 }
 
-// Mis solicitudes (con días hábiles por renglón)
+// Lista mis solicitudes (RPC recomendada). Si no existe, fallback a SELECT.
 async function loadMine(empId){
   $my.innerHTML = 'Cargando…';
-  const { data, error } = await supabase.rpc('vacation_requests_get', { emp_id: empId });
-  if(error){
-    $my.textContent = 'Error: ' + (error.message || JSON.stringify(error));
+
+  // Primero intenta con RPC para que ya venga biz_days
+  let rows = null, err = null;
+  const rpc = await supabase.rpc('vacation_requests_get', { emp_id: empId });
+  if(!rpc.error && rpc.data){
+    rows = rpc.data;
+  } else {
+    // Fallback y calculamos días en el back con otra RPC por cada fila (menos ideal).
+    const s = await supabase
+      .from('vacation_requests')
+      .select('id, start_date, end_date, status, created_at')
+      .eq('employee_id', empId)
+      .gte('start_date', '2026-01-01')
+      .lte('end_date', '2026-12-31')
+      .order('start_date', { ascending: true });
+    rows = s.data; err = s.error;
+  }
+
+  if(err){
+    $my.textContent = 'Error: ' + (err.message || JSON.stringify(err));
     return;
   }
-  const list = (data || []).filter(r => {
-    const ys = Number(r.start_date?.toString().slice(0,4));
-    const ye = Number(r.end_date?.toString().slice(0,4));
-    return ys === 2026 && ye === 2026;
-  });
-  if(list.length === 0){
+  if(!rows || rows.length === 0){
     $my.textContent = 'Sin solicitudes para 2026.';
     return;
   }
-  $my.innerHTML = list.map(r => `
-    <div class="req" data-id="${r.id}">
-      <div class="req-main">
-        <div><strong>${fmtYMD(r.start_date)} → ${fmtYMD(r.end_date)} (${r.biz_days} días)</strong></div>
+
+  // Render
+  $my.innerHTML = rows.map(r => {
+    const days = (typeof r.biz_days === 'number') ? r.biz_days : null;
+    const daysTxt = (days !== null) ? ` (${days} días)` : '';
+    const canDelete = (r.status === 'Pendiente');
+    const delBtn = canDelete ? `<button class="btn-link" data-del="${r.id}">Borrar</button>` : '';
+    return `
+      <div class="req">
+        <div><strong>${fmt(r.start_date)} → ${fmt(r.end_date)}</strong>${daysTxt}</div>
         <small>Estado: ${r.status}</small>
+        <div class="req-actions">${delBtn}</div>
       </div>
-      ${r.status === 'Pendiente' ? `<button class="btn-del" data-id="${r.id}" title="Eliminar solicitud">Eliminar</button>` : ''}
-    </div>
-  `).join('');
+    `;
+  }).join('');
+
+  // Wire borrar
+  $my.querySelectorAll('[data-del]').forEach(btn => {
+    btn.addEventListener('click', async (ev) => {
+      const reqId = ev.currentTarget.getAttribute('data-del');
+      if(!confirm('¿Borrar esta solicitud pendiente?')) return;
+
+      // Intento por RPC (respeta RLS y valida dueño)
+      const { data, error } = await supabase.rpc('vacation_requests_delete', {
+        req_id: reqId,
+        emp_id: $emp.value
+      });
+      if(error){
+        showMsg('No se pudo borrar: ' + (error.message || JSON.stringify(error)));
+        return;
+      }
+      showMsg(data ? 'Solicitud borrada.' : 'No se pudo borrar (¿ya no está Pendiente?).', !!data);
+      loadMine($emp.value);
+      // refrescamos resumen
+      loadEmployeeInfo($emp.value);
+    });
+  });
 }
 
-/* ========= Eventos ========= */
+// Enviar solicitud
+async function submitRequest(){
+  const empId = $emp.value;
+  const s = $start.value;
+  const t = $end.value;
+  if(!empId) return showMsg('Selecciona tu nombre.');
+  if(!s || !t) return showMsg('Completa las fechas.');
+  if(s > t) return showMsg('La fecha de inicio no puede ser posterior al fin.');
 
+  // Intenta por RPC (para evitar RLS en direct insert)
+  const ins = await supabase.rpc('vacation_requests_create', { emp_id: empId, s, e: t });
+  if(ins.error){
+    // Fallback a insert directo (si tu política/trigger lo permite)
+    const { error } = await supabase
+      .from('vacation_requests')
+      .insert({ employee_id: empId, start_date: s, end_date: t, status: 'Pendiente' });
+    if(error){
+      showMsg('No se pudo registrar: ' + (error.message || JSON.stringify(error)));
+      return;
+    }
+  }
+
+  showMsg('Solicitud registrada correctamente.', true);
+  await loadMine(empId);
+  await loadEmployeeInfo(empId);
+}
+
+// Eventos
 $search.addEventListener('input', applyFilter);
 
 $search.addEventListener('keydown', (ev) => {
@@ -144,75 +224,16 @@ $search.addEventListener('keydown', (ev) => {
 
 $emp.addEventListener('change', async (e) => {
   const id = e.target.value;
-  CURRENT_EMP_ID = id || null;
   if(id){
-    await loadEmpHeader(id);   // bodega/ingreso/cupo/usado/restante
-    loadMine(id);              // solicitudes con días hábiles
+    await loadEmployeeInfo(id);
+    await loadMine(id);
   } else {
-    $my.innerHTML = '';
     $empInfo.hidden = true;
+    $my.innerHTML = '';
   }
 });
 
-$submit.addEventListener('click', async () => {
-  if(submitting) return;
-  const empId = $emp.value;
-  const s = $start.value;
-  const t = $end.value;
-  if(!empId) return showMsg('Selecciona tu nombre.');
-  if(!s || !t) return showMsg('Completa las fechas.');
-  if(s > t) return showMsg('La fecha de inicio no puede ser posterior al fin.');
+$submit.addEventListener('click', submitRequest);
 
-  submitting = true; $submit.disabled = true; showMsg('Enviando…', true);
-
-  // Inserción por RPC
-  const { error } = await supabase.rpc('vacation_requests_create', { emp_id: empId, s, e: t });
-
-  submitting = false; $submit.disabled = false;
-
-  if(error){
-    showMsg('No se pudo registrar: ' + (error.message || JSON.stringify(error)));
-    return;
-  }
-  showMsg('Solicitud registrada correctamente.', true);
-
-  // Refresca solicitudes y resumen
-  await loadMine(empId);
-  await loadEmpHeader(empId);
-});
-
-/* Delegación de click para eliminar solicitudes pendientes */
-$my.addEventListener('click', async (ev) => {
-  const btn = ev.target.closest('.btn-del');
-  if(!btn) return;
-
-  const reqId = btn.getAttribute('data-id');
-  if(!reqId || !CURRENT_EMP_ID) return;
-
-  const ok = confirm('¿Eliminar esta solicitud pendiente?');
-  if(!ok) return;
-
-  btn.disabled = true;
-
-  const { data, error } = await supabase.rpc('vacation_requests_delete', {
-    req_id: reqId, emp_id: CURRENT_EMP_ID
-  });
-
-  btn.disabled = false;
-
-  if(error){
-    showMsg('No se pudo eliminar: ' + (error.message || JSON.stringify(error)));
-    return;
-  }
-  if(!data){
-    showMsg('No se eliminó (verifica que esté Pendiente y sea tuya).');
-    return;
-  }
-
-  showMsg('Solicitud eliminada.', true);
-  await loadMine(CURRENT_EMP_ID);
-  await loadEmpHeader(CURRENT_EMP_ID);
-});
-
-/* ========= Inicio ========= */
+// Inicio
 loadEmployees();
