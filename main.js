@@ -30,41 +30,35 @@ function showMsg(text, ok=false){
 
 /**
  * Formatea fechas 'YYYY-MM-DD' SIN desfase de zona horaria.
- * - Si d ya viene como Date, intenta formatear directo en UTC.
- * - Si d es string 'YYYY-MM-DD', lo parsea a UTC fijo.
+ * Acepta 'YYYY-MM-DD' o ISO completo; imprime siempre en UTC.
  */
 function fmt(d){
   if(!d) return '-';
 
-  // Si viene como Date (raro aquí), forzamos UTC en impresión
+  // Si ya es Date
   if (d instanceof Date && !isNaN(d)) {
     return d.toLocaleDateString('es-MX', {
       day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC'
     });
   }
 
-  // Si es tipo 'YYYY-MM-DD' o 'YYYY-MM-DDTHH:mm:ssZ'
   const s = String(d);
-
-  // Caso ISO-dia puro 'YYYY-MM-DD'
+  // 'YYYY-MM-DD'
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (m) {
     const y = Number(m[1]), mo = Number(m[2]), day = Number(m[3]);
-    const dt = new Date(Date.UTC(y, mo - 1, day)); // ancla a UTC
+    const dt = new Date(Date.UTC(y, mo - 1, day));
     return dt.toLocaleDateString('es-MX', {
       day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC'
     });
   }
-
-  // Si llega un ISO completo, lo normalizamos a UTC por seguridad
+  // ISO general
   const dt = new Date(s);
   if (!isNaN(dt)) {
     return dt.toLocaleDateString('es-MX', {
       day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC'
     });
   }
-
-  // Fallback: regresa el texto crudo
   return s;
 }
 
@@ -125,16 +119,16 @@ async function loadEmployees(){
 
 // ==== Panel de info del empleado ====
 async function loadEmployeeInfo(empId){
-  // Info base + cupo real desde BD
+  // Info base + cupo base (según función employees_info)
   const { data: infoArr, error: e1 } = await supabase.rpc('employees_info', { emp_id: empId });
   if(e1){ showMsg('No se pudo leer información del colaborador: ' + e1.message); return; }
   const info = (infoArr && infoArr[0]) ? infoArr[0] : null;
 
-  // Resumen 2026 (trae usado/restantes/elegibilidad/restante_visible)
+  // Resumen 2026 (incluye visible)
   const { data: sumArr, error: e2 } = await supabase.rpc('employees_vac_summary_2026', { emp_id: empId });
   if(e2){ showMsg('No se pudo leer el resumen de vacaciones: ' + e2.message); return; }
   const summary = (sumArr && sumArr[0]) ? sumArr[0] : {
-    cupo_2026: 0, usado_2026: 0, restante_2026: 0, elegible_desde: null, restante_visible: 0
+    cupo_2026: 0, usado_2026: 0, restante_2026: 0, elegible_desde: null, restante_visible: 0, cupo_visible: 0
   };
 
   // Pinta datos básicos
@@ -143,21 +137,23 @@ async function loadEmployeeInfo(empId){
   $bod.textContent      = info?.bodega ?? '-';
   $ingreso.textContent  = fmt(info?.fecha_ingreso);
 
- // Cupo 2026 visible (respeta elegibilidad por tu regla nueva)
-$cupo.textContent  = (typeof summary?.cupo_visible === 'number')
-  ? summary.cupo_visible
-  : (info?.cupo_2026 ?? summary?.cupo_2026 ?? 0);
+  // Cupo 2026: usar cupo_visible (regla junio/2024) o fallback a cupo_2026
+  const cupoVis = (typeof summary?.cupo_visible === 'number')
+    ? summary.cupo_visible
+    : (info?.cupo_2026 ?? summary?.cupo_2026 ?? 0);
+  $cupo.textContent  = cupoVis;
 
-$usado.textContent = (summary?.usado_2026 ?? 0);
+  // Usados
+  $usado.textContent = (summary?.usado_2026 ?? 0);
 
-$restante.textContent = (typeof summary?.restante_visible === 'number')
-  ? summary.restante_visible
-  : (summary?.restante_2026 ?? 0);
-
+  // Restantes: usar restante_visible (0 si aún no elegible) o fallback a restante_2026
+  const restVis = (typeof summary?.restante_visible === 'number')
+    ? summary.restante_visible
+    : (summary?.restante_2026 ?? 0);
+  $restante.textContent = restVis;
 
   // Limpia mensajes
   showMsg('', true);
-
   $empInfo.hidden = false;
 }
 
