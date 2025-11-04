@@ -20,7 +20,8 @@ const $cupo     = document.getElementById('v-cupo');
 const $usado    = document.getElementById('v-usado');
 const $restante = document.getElementById('v-restante');
 
-let EMPLOYEES = []; // cache de empleados
+let EMPLOYEES = [];     // cache de empleados
+let CURRENT_EMP = null; // <-- NUEVO: empleado vigente para bloquear renders viejos
 
 // ==== Utilidades ====
 function showMsg(text, ok=false){
@@ -119,13 +120,16 @@ async function loadEmployees(){
 
 // ==== Panel de info del empleado ====
 async function loadEmployeeInfo(empId){
-  // Info base + cupo base (según función employees_info)
+  // Si mientras cargamos cambiaste de empleado, aborta
+  if (empId !== CURRENT_EMP) return;
+
   const { data: infoArr, error: e1 } = await supabase.rpc('employees_info', { emp_id: empId });
+  if (empId !== CURRENT_EMP) return;
   if(e1){ showMsg('No se pudo leer información del colaborador: ' + e1.message); return; }
   const info = (infoArr && infoArr[0]) ? infoArr[0] : null;
 
-  // Resumen 2026 (incluye visible)
   const { data: sumArr, error: e2 } = await supabase.rpc('employees_vac_summary_2026', { emp_id: empId });
+  if (empId !== CURRENT_EMP) return;
   if(e2){ showMsg('No se pudo leer el resumen de vacaciones: ' + e2.message); return; }
   const summary = (sumArr && sumArr[0]) ? sumArr[0] : {
     cupo_2026: 0, usado_2026: 0, restante_2026: 0, elegible_desde: null, restante_visible: 0, cupo_visible: 0
@@ -152,18 +156,21 @@ async function loadEmployeeInfo(empId){
     : (summary?.restante_2026 ?? 0);
   $restante.textContent = restVis;
 
-  // Limpia mensajes
   showMsg('', true);
   $empInfo.hidden = false;
 }
 
 // ==== Mis solicitudes 2026 ====
 async function loadMine(empId){
+  if (empId !== CURRENT_EMP) return;
+
   $my.innerHTML = 'Cargando…';
 
   // RPC con biz_days (preferida)
   let rows = null, err = null;
   const rpc = await supabase.rpc('vacation_requests_get', { emp_id: empId });
+  if (empId !== CURRENT_EMP) return;
+
   if(!rpc.error && rpc.data){
     rows = rpc.data;
   } else {
@@ -174,6 +181,7 @@ async function loadMine(empId){
       .gte('start_date', '2026-01-01')
       .lte('end_date', '2026-12-31')
       .order('start_date', { ascending: true });
+    if (empId !== CURRENT_EMP) return;
     rows = s.data; err = s.error;
   }
 
@@ -215,8 +223,11 @@ async function loadMine(empId){
         return;
       }
       showMsg(data ? 'Solicitud borrada.' : 'No se pudo borrar (¿ya no está Pendiente?).', !!data);
-      await loadMine($emp.value);
-      await loadEmployeeInfo($emp.value);
+      // Re-carga si seguimos en el mismo empleado
+      if ($emp.value === CURRENT_EMP) {
+        await loadMine(CURRENT_EMP);
+        await loadEmployeeInfo(CURRENT_EMP);
+      }
     });
   });
 }
@@ -230,6 +241,8 @@ async function submitRequest(){
   if(!s || !t) return showMsg('Completa las fechas.');
   if(s > t) return showMsg('La fecha de inicio no puede ser posterior al fin.');
 
+  $submit.disabled = true;
+
   // RPC (respeta RLS con SECURITY DEFINER)
   const ins = await supabase.rpc('vacation_requests_create', { emp_id: empId, s, e: t });
   if(ins.error){
@@ -239,6 +252,7 @@ async function submitRequest(){
       .insert({ employee_id: empId, start_date: s, end_date: t, status: 'Pendiente' });
     if(error){
       showMsg('No se pudo registrar: ' + (error.message || JSON.stringify(error)));
+      $submit.disabled = false;
       return;
     }
   }
@@ -246,6 +260,7 @@ async function submitRequest(){
   showMsg('Solicitud registrada correctamente.', true);
   await loadMine(empId);
   await loadEmployeeInfo(empId);
+  $submit.disabled = false;
 }
 
 // ==== Eventos UI ====
@@ -263,13 +278,24 @@ $search.addEventListener('keydown', (ev) => {
 
 $emp.addEventListener('change', async (e) => {
   const id = e.target.value;
+
+  // Limpieza inmediata para que no queden restos del anterior
+  $empInfo.hidden = true;
+  $my.innerHTML = '';
+  showMsg('', true);
+  $start.value = '';
+  $end.value = '';
+  $submit.disabled = !!id; // bloquea mientras cargamos si hay selección
+
   if(id){
-    await loadEmployeeInfo(id);
+    CURRENT_EMP = id;              // fija quién es el “vigente”
+    $my.textContent = 'Cargando…'; // feedback rápido
+    await loadEmployeeInfo(id);    // ambas respetan CURRENT_EMP
     await loadMine(id);
+    if ($emp.value === CURRENT_EMP) $submit.disabled = false;
   } else {
-    $empInfo.hidden = true;
-    $my.innerHTML = '';
-    showMsg('', true);
+    CURRENT_EMP = null;
+    $submit.disabled = false;
   }
 });
 
