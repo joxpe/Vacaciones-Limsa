@@ -143,9 +143,11 @@ async function loadEmployeeInfo(empId){
   $bod.textContent      = info?.bodega ?? '-';
   $ingreso.textContent  = fmt(info?.fecha_ingreso);
 
-  // Cupo 2026: SIEMPRE mostrar el real
-  const cupoReal = (info?.cupo_2026 ?? summary?.cupo_2026 ?? 0);
-  $cupo.textContent  = cupoReal;
+ // Cupo 2026 visible (respeta elegibilidad por tu regla nueva)
+ const cupoVis = (typeof summary?.cupo_visible === 'number')
+   ? summary.cupo_visible
+   : (info?.cupo_2026 ?? summary?.cupo_2026 ?? 0);
+ $cupo.textContent  = cupoVis;
 
   // Usados
   $usado.textContent = (summary?.usado_2026 ?? 0);
