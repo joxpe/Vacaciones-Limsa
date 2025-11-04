@@ -92,9 +92,9 @@ async function loadEmployees(){
   renderEmployees(EMPLOYEES);
 }
 
-// Panel informativo (bodega/depto/loc/ingreso + cupo/usado/restantes y elegibilidad)
+// Panel informativo (incluye elegibilidad y cupo/visibles)
 async function loadEmployeeInfo(empId){
-  // Info base + cupo
+  // Info base + cupo (cupo real de BD)
   const { data: infoArr, error: e1 } = await supabase.rpc('employees_info', { emp_id: empId });
   if(e1){ showMsg('No se pudo leer información del colaborador: ' + e1.message); return; }
   const info = (infoArr && infoArr[0]) ? infoArr[0] : null;
@@ -106,33 +106,31 @@ async function loadEmployeeInfo(empId){
     cupo_2026: 0, usado_2026: 0, restante_2026: 0, elegible_desde: null, restante_visible: 0
   };
 
-  // Pinta
+  // Pinta información
   $loc.textContent      = info?.localizacion ?? '-';
   $dep.textContent      = info?.departamento ?? '-';
   $bod.textContent      = info?.bodega ?? '-';
   $ingreso.textContent  = fmt(info?.fecha_ingreso);
   $elig.textContent     = summary?.elegible_desde ? fmt(summary.elegible_desde) : '-';
 
-  // Cupos
-  const cupo = (info?.cupo_2026 ?? summary?.cupo_2026 ?? 0);
-  $cupo.textContent     = cupo;
-  $usado.textContent    = (summary?.usado_2026 ?? 0);
+  // === Cupo 2026 visible en 0 si todavía no es elegible (opción A) ===
+  const cupoReal = (info?.cupo_2026 ?? summary?.cupo_2026 ?? 0);
+  const eligDate = summary?.elegible_desde ? new Date(summary.elegible_desde) : null;
+  const elegibleTarde = !!(eligDate && eligDate > new Date('2026-01-01'));
+  const cupoVisible = elegibleTarde ? 0 : cupoReal;
 
-  // Restantes: mostrar "restante_visible"
+  $cupo.textContent  = cupoVisible;
+  $usado.textContent = (summary?.usado_2026 ?? 0);
+
+  // Restantes: usamos el “restante_visible” que ya viene preparado (0 si no elegible aún)
   const visibles = (typeof summary?.restante_visible === 'number')
     ? summary.restante_visible
     : (summary?.restante_2026 ?? 0);
   $restante.textContent = visibles;
 
-  // Mensaje de ayuda si aún no es elegible
-  if (summary?.elegible_desde) {
-    const eligDate = new Date(summary.elegible_desde);
-    const jan1 = new Date('2026-01-01');
-    if (eligDate > jan1) {
-      showMsg(`Elegible para tomar en 2026 desde: ${fmt(eligDate)}. Restantes visibles antes de esa fecha: ${visibles}.`, true);
-    } else {
-      showMsg('', true); // limpia
-    }
+  // Mensaje de ayuda (opcional)
+  if (elegibleTarde) {
+    showMsg(`Elegible para tomar en 2026 desde: ${fmt(eligDate)}.`, true);
   } else {
     showMsg('', true);
   }
