@@ -16,7 +16,6 @@ const $loc      = document.getElementById('v-localizacion');
 const $dep      = document.getElementById('v-departamento');
 const $bod      = document.getElementById('v-bodega');
 const $ingreso  = document.getElementById('v-ingreso');
-const $elig     = document.getElementById('v-elegible');
 const $cupo     = document.getElementById('v-cupo');
 const $usado    = document.getElementById('v-usado');
 const $restante = document.getElementById('v-restante');
@@ -92,7 +91,7 @@ async function loadEmployees(){
   renderEmployees(EMPLOYEES);
 }
 
-// Panel informativo (incluye elegibilidad y cupo/visibles)
+// Panel informativo (incluye cupo visible = 0 si no elegible)
 async function loadEmployeeInfo(empId){
   // Info base + cupo (cupo real de BD)
   const { data: infoArr, error: e1 } = await supabase.rpc('employees_info', { emp_id: empId });
@@ -111,9 +110,8 @@ async function loadEmployeeInfo(empId){
   $dep.textContent      = info?.departamento ?? '-';
   $bod.textContent      = info?.bodega ?? '-';
   $ingreso.textContent  = fmt(info?.fecha_ingreso);
-  $elig.textContent     = summary?.elegible_desde ? fmt(summary.elegible_desde) : '-';
 
-  // === Cupo 2026 visible en 0 si todavía no es elegible (opción A) ===
+  // === Cupo 2026 visible en 0 si todavía no es elegible (front-only) ===
   const cupoReal = (info?.cupo_2026 ?? summary?.cupo_2026 ?? 0);
   const eligDate = summary?.elegible_desde ? new Date(summary.elegible_desde) : null;
   const elegibleTarde = !!(eligDate && eligDate > new Date('2026-01-01'));
@@ -122,18 +120,14 @@ async function loadEmployeeInfo(empId){
   $cupo.textContent  = cupoVisible;
   $usado.textContent = (summary?.usado_2026 ?? 0);
 
-  // Restantes: usamos el “restante_visible” que ya viene preparado (0 si no elegible aún)
+  // Restantes: usamos “restante_visible” (ya viene 0 si no elegible)
   const visibles = (typeof summary?.restante_visible === 'number')
     ? summary.restante_visible
     : (summary?.restante_2026 ?? 0);
   $restante.textContent = visibles;
 
-  // Mensaje de ayuda (opcional)
-  if (elegibleTarde) {
-    showMsg(`Elegible para tomar en 2026 desde: ${fmt(eligDate)}.`, true);
-  } else {
-    showMsg('', true);
-  }
+  // Mensaje opcional limpio
+  showMsg('', true);
 
   $empInfo.hidden = false;
 }
@@ -211,10 +205,8 @@ async function submitRequest(){
   if(!s || !t) return showMsg('Completa las fechas.');
   if(s > t) return showMsg('La fecha de inicio no puede ser posterior al fin.');
 
-  // RPC (respeta RLS vía SECURITY DEFINER)
   const ins = await supabase.rpc('vacation_requests_create', { emp_id: empId, s, e: t });
   if(ins.error){
-    // Fallback a insert directo
     const { error } = await supabase
       .from('vacation_requests')
       .insert({ employee_id: empId, start_date: s, end_date: t, status: 'Pendiente' });
