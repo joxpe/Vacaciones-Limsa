@@ -2,7 +2,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
-// Elementos
+// ==== Elementos del DOM ====
 const $emp     = document.getElementById('employee');
 const $search  = document.getElementById('search');
 const $start   = document.getElementById('start');
@@ -20,18 +20,46 @@ const $cupo     = document.getElementById('v-cupo');
 const $usado    = document.getElementById('v-usado');
 const $restante = document.getElementById('v-restante');
 
-let EMPLOYEES = []; // cache
+let EMPLOYEES = []; // cache de empleados
 
-// Utils
+// ==== Utilidades ====
 function showMsg(text, ok=false){
   $msg.textContent = text;
   $msg.className = 'msg ' + (ok ? 'ok' : 'err');
 }
 
+/**
+ * Formatea fechas 'YYYY-MM-DD' SIN desfase de zona horaria.
+ * Acepta 'YYYY-MM-DD' o ISO completo; imprime siempre en UTC.
+ */
 function fmt(d){
   if(!d) return '-';
-  const dt = new Date(d);
-  return dt.toLocaleDateString('es-MX', { day:'2-digit', month:'short', year:'numeric' });
+
+  // Si ya es Date
+  if (d instanceof Date && !isNaN(d)) {
+    return d.toLocaleDateString('es-MX', {
+      day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC'
+    });
+  }
+
+  const s = String(d);
+  // 'YYYY-MM-DD'
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) {
+    const y = Number(m[1]), mo = Number(m[2]), day = Number(m[3]);
+    const dt = new Date(Date.UTC(y, mo - 1, day));
+    return dt.toLocaleDateString('es-MX', {
+      day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC'
+    });
+  }
+  // ISO general
+  const dt = new Date(s);
+  if (!isNaN(dt)) {
+    return dt.toLocaleDateString('es-MX', {
+      day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC'
+    });
+  }
+  return s;
 }
 
 function norm(s){
@@ -59,16 +87,14 @@ function applyFilter(){
   renderEmployees(filtered);
 }
 
-// Carga colaboradores (RPC recomendada). Fallback a SELECT si no existe.
+// ==== Carga de empleados (RPC preferida; SELECT fallback) ====
 async function loadEmployees(){
   let data = null, error = null;
 
-  // RPC
   const rpc = await supabase.rpc('employees_public');
   if(!rpc.error && rpc.data){
     data = rpc.data;
   } else {
-    // Fallback
     const res = await supabase
       .from('employees')
       .select('id, nombre, bodega, departamento, localizacion')
@@ -91,52 +117,51 @@ async function loadEmployees(){
   renderEmployees(EMPLOYEES);
 }
 
-// Panel informativo (incluye cupo visible = 0 si no elegible)
+// ==== Panel de info del empleado ====
 async function loadEmployeeInfo(empId){
-  // Info base + cupo (cupo real de BD)
+  // Info base + cupo base (según función employees_info)
   const { data: infoArr, error: e1 } = await supabase.rpc('employees_info', { emp_id: empId });
   if(e1){ showMsg('No se pudo leer información del colaborador: ' + e1.message); return; }
   const info = (infoArr && infoArr[0]) ? infoArr[0] : null;
 
-  // Resumen 2026 con elegibilidad y restantes visibles
+  // Resumen 2026 (incluye visible)
   const { data: sumArr, error: e2 } = await supabase.rpc('employees_vac_summary_2026', { emp_id: empId });
   if(e2){ showMsg('No se pudo leer el resumen de vacaciones: ' + e2.message); return; }
   const summary = (sumArr && sumArr[0]) ? sumArr[0] : {
-    cupo_2026: 0, usado_2026: 0, restante_2026: 0, elegible_desde: null, restante_visible: 0
+    cupo_2026: 0, usado_2026: 0, restante_2026: 0, elegible_desde: null, restante_visible: 0, cupo_visible: 0
   };
 
-  // Pinta información
+  // Pinta datos básicos
   $loc.textContent      = info?.localizacion ?? '-';
   $dep.textContent      = info?.departamento ?? '-';
   $bod.textContent      = info?.bodega ?? '-';
   $ingreso.textContent  = fmt(info?.fecha_ingreso);
 
-  // === Cupo 2026 visible en 0 si todavía no es elegible (front-only) ===
-  const cupoReal = (info?.cupo_2026 ?? summary?.cupo_2026 ?? 0);
-  const eligDate = summary?.elegible_desde ? new Date(summary.elegible_desde) : null;
-  const elegibleTarde = !!(eligDate && eligDate > new Date('2026-01-01'));
-  const cupoVisible = elegibleTarde ? 0 : cupoReal;
+  // Cupo 2026: usar cupo_visible (regla junio/2024) o fallback a cupo_2026
+  const cupoVis = (typeof summary?.cupo_visible === 'number')
+    ? summary.cupo_visible
+    : (info?.cupo_2026 ?? summary?.cupo_2026 ?? 0);
+  $cupo.textContent  = cupoVis;
 
-  $cupo.textContent  = cupoVisible;
+  // Usados
   $usado.textContent = (summary?.usado_2026 ?? 0);
 
-  // Restantes: usamos “restante_visible” (ya viene 0 si no elegible)
-  const visibles = (typeof summary?.restante_visible === 'number')
+  // Restantes: usar restante_visible (0 si aún no elegible) o fallback a restante_2026
+  const restVis = (typeof summary?.restante_visible === 'number')
     ? summary.restante_visible
     : (summary?.restante_2026 ?? 0);
-  $restante.textContent = visibles;
+  $restante.textContent = restVis;
 
-  // Mensaje opcional limpio
+  // Limpia mensajes
   showMsg('', true);
-
   $empInfo.hidden = false;
 }
 
-// Lista mis solicitudes 2026 (con días hábiles) + borrar si Pendiente
+// ==== Mis solicitudes 2026 ====
 async function loadMine(empId){
   $my.innerHTML = 'Cargando…';
 
-  // RPC con biz_days
+  // RPC con biz_days (preferida)
   let rows = null, err = null;
   const rpc = await supabase.rpc('vacation_requests_get', { emp_id: empId });
   if(!rpc.error && rpc.data){
@@ -175,7 +200,7 @@ async function loadMine(empId){
     `;
   }).join('');
 
-  // Wire borrar
+  // Eventos de borrado
   $my.querySelectorAll('[data-del]').forEach(btn => {
     btn.addEventListener('click', async (ev) => {
       const reqId = ev.currentTarget.getAttribute('data-del');
@@ -196,7 +221,7 @@ async function loadMine(empId){
   });
 }
 
-// Enviar solicitud (RPC preferida; fallback a insert directo)
+// ==== Enviar solicitud ====
 async function submitRequest(){
   const empId = $emp.value;
   const s = $start.value;
@@ -205,8 +230,10 @@ async function submitRequest(){
   if(!s || !t) return showMsg('Completa las fechas.');
   if(s > t) return showMsg('La fecha de inicio no puede ser posterior al fin.');
 
+  // RPC (respeta RLS con SECURITY DEFINER)
   const ins = await supabase.rpc('vacation_requests_create', { emp_id: empId, s, e: t });
   if(ins.error){
+    // Fallback a insert directo (si tuvieras RLS abierto para anon)
     const { error } = await supabase
       .from('vacation_requests')
       .insert({ employee_id: empId, start_date: s, end_date: t, status: 'Pendiente' });
@@ -221,7 +248,7 @@ async function submitRequest(){
   await loadEmployeeInfo(empId);
 }
 
-// Eventos
+// ==== Eventos UI ====
 $search.addEventListener('input', applyFilter);
 
 $search.addEventListener('keydown', (ev) => {
@@ -248,5 +275,5 @@ $emp.addEventListener('change', async (e) => {
 
 $submit.addEventListener('click', submitRequest);
 
-// Inicio
+// ==== Inicio ====
 loadEmployees();
