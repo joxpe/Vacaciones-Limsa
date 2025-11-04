@@ -144,19 +144,15 @@ async function loadEmployeeInfo(empId){
   $ingreso.textContent  = fmt(info?.fecha_ingreso);
 
  // Cupo 2026 visible (respeta elegibilidad por tu regla nueva)
- const cupoVis = (typeof summary?.cupo_visible === 'number')
-   ? summary.cupo_visible
-   : (info?.cupo_2026 ?? summary?.cupo_2026 ?? 0);
- $cupo.textContent  = cupoVis;
+$cupo.textContent  = (typeof summary?.cupo_visible === 'number')
+  ? summary.cupo_visible
+  : (info?.cupo_2026 ?? summary?.cupo_2026 ?? 0);
 
-  // Usados
-  $usado.textContent = (summary?.usado_2026 ?? 0);
+$usado.textContent = (summary?.usado_2026 ?? 0);
 
-  // Restantes: usamos restante_visible (0 si aún no elegible)
-  const visibles = (typeof summary?.restante_visible === 'number')
-    ? summary.restante_visible
-    : (summary?.restante_2026 ?? 0);
-  $restante.textContent = visibles;
+$restante.textContent = (typeof summary?.restante_visible === 'number')
+  ? summary.restante_visible
+  : (summary?.restante_2026 ?? 0);
 
   // Limpia mensajes
   showMsg('', true);
