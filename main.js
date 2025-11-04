@@ -154,6 +154,7 @@ $restante.textContent = (typeof summary?.restante_visible === 'number')
   ? summary.restante_visible
   : (summary?.restante_2026 ?? 0);
 
+
   // Limpia mensajes
   showMsg('', true);
 
