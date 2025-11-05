@@ -137,3 +137,23 @@ $next.addEventListener('click', () => { CUR.month = new Date(CUR.month.getFullYe
   buildCalendarGrid(CUR.month);
   await loadMonth();
 })();
+
+.back-link {
+  text-align: left;
+  margin: 15px;
+}
+
+.back-button {
+  display: inline-block;
+  background-color: #6c757d;
+  color: white;
+  font-weight: bold;
+  padding: 10px 16px;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: background-color 0.3s ease;
+}
+
+.back-button:hover {
+  background-color: #5a6268;
+}
