@@ -3,6 +3,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
 // ==== Elementos del DOM ====
+const $wh      = document.getElementById('warehouse');
 const $emp     = document.getElementById('employee');
 const $search  = document.getElementById('search');
 const $start   = document.getElementById('start');
@@ -20,72 +21,74 @@ const $cupo     = document.getElementById('v-cupo');
 const $usado    = document.getElementById('v-usado');
 const $restante = document.getElementById('v-restante');
 
-let EMPLOYEES = [];     // cache de empleados
-let CURRENT_EMP = null; // <-- NUEVO: empleado vigente para bloquear renders viejos
+let EMPLOYEES = [];     // cache de empleados [{id, nombre, bodega, ...}]
+let CURRENT_EMP = null; // empleado vigente (para bloquear renders desfasados)
 
 // ==== Utilidades ====
 function showMsg(text, ok=false){
   $msg.textContent = text;
   $msg.className = 'msg ' + (ok ? 'ok' : 'err');
 }
-
-/**
- * Formatea fechas 'YYYY-MM-DD' SIN desfase de zona horaria.
- * Acepta 'YYYY-MM-DD' o ISO completo; imprime siempre en UTC.
- */
 function fmt(d){
   if(!d) return '-';
-
-  // Si ya es Date
   if (d instanceof Date && !isNaN(d)) {
-    return d.toLocaleDateString('es-MX', {
-      day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC'
-    });
+    return d.toLocaleDateString('es-MX', { day:'2-digit', month:'short', year:'numeric', timeZone:'UTC' });
   }
-
   const s = String(d);
-  // 'YYYY-MM-DD'
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (m) {
-    const y = Number(m[1]), mo = Number(m[2]), day = Number(m[3]);
-    const dt = new Date(Date.UTC(y, mo - 1, day));
-    return dt.toLocaleDateString('es-MX', {
-      day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC'
-    });
+    const dt = new Date(Date.UTC(+m[1], +m[2]-1, +m[3]));
+    return dt.toLocaleDateString('es-MX', { day:'2-digit', month:'short', year:'numeric', timeZone:'UTC' });
   }
-  // ISO general
   const dt = new Date(s);
   if (!isNaN(dt)) {
-    return dt.toLocaleDateString('es-MX', {
-      day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC'
-    });
+    return dt.toLocaleDateString('es-MX', { day:'2-digit', month:'short', year:'numeric', timeZone:'UTC' });
   }
   return s;
 }
-
 function norm(s){
-  return (s || "")
-    .toString()
+  return (s || "").toString()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim();
 }
 
+// ==== Render helpers ====
 function renderEmployees(list){
   if(!list || list.length === 0){
     $emp.innerHTML = '<option value="">(Sin coincidencias)</option>';
     return;
   }
-  $emp.innerHTML = '<option value="">Selecciona tu nombre…</option>' +
+  $emp.innerHTML =
+    '<option value="">Selecciona tu nombre…</option>' +
     list.map(e => `<option value="${e.id}">${e.nombre}</option>`).join('');
 }
+function renderWarehouses(){
+  // bodegas únicas (incluye "(Sin bodega)" para nulos)
+  const coll = new Intl.Collator('es-MX');
+  const uniq = Array.from(new Set(EMPLOYEES.map(e => e.bodega ?? '(Sin bodega)'))).sort(coll.compare);
+  $wh.innerHTML = [
+    `<option value="">Todas las bodegas</option>`,
+    ...uniq.map(b => `<option value="${b}">${b}</option>`)
+  ].join('');
+}
 
+// ==== Filtro combinado por bodega + nombre ====
 function applyFilter(){
   const q = norm($search.value);
-  if(!q){ renderEmployees(EMPLOYEES); return; }
-  const filtered = EMPLOYEES.filter(e => norm(e.nombre).includes(q));
-  renderEmployees(filtered);
+  const selectedBod = $wh.value; // "" = todas, otro = exact match del display
+
+  let list = EMPLOYEES;
+
+  if (selectedBod) {
+    list = list.filter(e => (e.bodega ?? '(Sin bodega)') === selectedBod);
+  }
+  if (q) {
+    list = list.filter(e => norm(e.nombre).includes(q));
+  }
+
+  renderEmployees(list);
 }
 
 // ==== Carga de empleados (RPC preferida; SELECT fallback) ====
@@ -115,12 +118,13 @@ async function loadEmployees(){
     departamento: r.departamento ?? null,
     localizacion: r.localizacion ?? null
   }));
-  renderEmployees(EMPLOYEES);
+
+  renderWarehouses();   // poblar select de bodegas
+  applyFilter();        // render de empleados con filtros actuales
 }
 
 // ==== Panel de info del empleado ====
 async function loadEmployeeInfo(empId){
-  // Si mientras cargamos cambiaste de empleado, aborta
   if (empId !== CURRENT_EMP) return;
 
   const { data: infoArr, error: e1 } = await supabase.rpc('employees_info', { emp_id: empId });
@@ -135,22 +139,17 @@ async function loadEmployeeInfo(empId){
     cupo_2026: 0, usado_2026: 0, restante_2026: 0, elegible_desde: null, restante_visible: 0, cupo_visible: 0
   };
 
-  // Pinta datos básicos
   $loc.textContent      = info?.localizacion ?? '-';
   $dep.textContent      = info?.departamento ?? '-';
   $bod.textContent      = info?.bodega ?? '-';
   $ingreso.textContent  = fmt(info?.fecha_ingreso);
 
-  // Cupo 2026: usar cupo_visible (regla junio/2024) o fallback a cupo_2026
   const cupoVis = (typeof summary?.cupo_visible === 'number')
     ? summary.cupo_visible
     : (info?.cupo_2026 ?? summary?.cupo_2026 ?? 0);
   $cupo.textContent  = cupoVis;
-
-  // Usados
   $usado.textContent = (summary?.usado_2026 ?? 0);
 
-  // Restantes: usar restante_visible (0 si aún no elegible) o fallback a restante_2026
   const restVis = (typeof summary?.restante_visible === 'number')
     ? summary.restante_visible
     : (summary?.restante_2026 ?? 0);
@@ -166,7 +165,6 @@ async function loadMine(empId){
 
   $my.innerHTML = 'Cargando…';
 
-  // RPC con biz_days (preferida)
   let rows = null, err = null;
   const rpc = await supabase.rpc('vacation_requests_get', { emp_id: empId });
   if (empId !== CURRENT_EMP) return;
@@ -208,7 +206,6 @@ async function loadMine(empId){
     `;
   }).join('');
 
-  // Eventos de borrado
   $my.querySelectorAll('[data-del]').forEach(btn => {
     btn.addEventListener('click', async (ev) => {
       const reqId = ev.currentTarget.getAttribute('data-del');
@@ -223,7 +220,6 @@ async function loadMine(empId){
         return;
       }
       showMsg(data ? 'Solicitud borrada.' : 'No se pudo borrar (¿ya no está Pendiente?).', !!data);
-      // Re-carga si seguimos en el mismo empleado
       if ($emp.value === CURRENT_EMP) {
         await loadMine(CURRENT_EMP);
         await loadEmployeeInfo(CURRENT_EMP);
@@ -243,10 +239,8 @@ async function submitRequest(){
 
   $submit.disabled = true;
 
-  // RPC (respeta RLS con SECURITY DEFINER)
   const ins = await supabase.rpc('vacation_requests_create', { emp_id: empId, s, e: t });
   if(ins.error){
-    // Fallback a insert directo (si tuvieras RLS abierto para anon)
     const { error } = await supabase
       .from('vacation_requests')
       .insert({ employee_id: empId, start_date: s, end_date: t, status: 'Pendiente' });
@@ -264,8 +258,9 @@ async function submitRequest(){
 }
 
 // ==== Eventos UI ====
+// Filtro por texto
 $search.addEventListener('input', applyFilter);
-
+// Enter en buscador => autoseleccionar primera opción visible
 $search.addEventListener('keydown', (ev) => {
   if(ev.key === 'Enter'){
     const opts = $emp.querySelectorAll('option');
@@ -276,21 +271,35 @@ $search.addEventListener('keydown', (ev) => {
   }
 });
 
-$emp.addEventListener('change', async (e) => {
-  const id = e.target.value;
-
-  // Limpieza inmediata para que no queden restos del anterior
+// Cambio de bodega => resetea selección y aplica filtro
+$wh.addEventListener('change', () => {
+  // limpiar selección de colaborador y UI
+  $emp.value = '';
+  CURRENT_EMP = null;
   $empInfo.hidden = true;
   $my.innerHTML = '';
   showMsg('', true);
   $start.value = '';
   $end.value = '';
-  $submit.disabled = !!id; // bloquea mientras cargamos si hay selección
+  applyFilter(); // vuelve a renderizar nombres para la bodega seleccionada
+});
+
+// Cambio de colaborador
+$emp.addEventListener('change', async (e) => {
+  const id = e.target.value;
+
+  // Limpieza inmediata
+  $empInfo.hidden = true;
+  $my.innerHTML = '';
+  showMsg('', true);
+  $start.value = '';
+  $end.value = '';
+  $submit.disabled = !!id;
 
   if(id){
-    CURRENT_EMP = id;              // fija quién es el “vigente”
-    $my.textContent = 'Cargando…'; // feedback rápido
-    await loadEmployeeInfo(id);    // ambas respetan CURRENT_EMP
+    CURRENT_EMP = id;
+    $my.textContent = 'Cargando…';
+    await loadEmployeeInfo(id);
     await loadMine(id);
     if ($emp.value === CURRENT_EMP) $submit.disabled = false;
   } else {
