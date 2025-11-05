@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Calendario Vacaciones — Gerencia</title>
+  <link rel="stylesheet" href="manager-calendar.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Calendario de Vacaciones (Gerencia)</h1>
+
+    <div class="filters card">
+      <div class="row">
+        <div class="col">
+          <label for="f-bodega">Bodega</label>
+          <select id="f-bodega">
+            <option value="">Todas</option>
+          </select>
+        </div>
+        <div class="col">
+          <label for="f-depto">Departamento</label>
+          <select id="f-depto">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <div class="col">
+          <label for="f-month">Mes</label>
+          <input type="month" id="f-month" />
+        </div>
+      </div>
+      <div class="legend">
+        <span class="badge pend">Pendiente</span>
+        <span class="badge auth">Autorizada</span>
+        <span class="badge many">Alta concurrencia</span>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <button id="prev">◀</button>
+      <div id="month-title"></div>
+      <button id="next">▶</button>
+    </div>
+
+    <div id="calendar" class="calendar card">
+      <div class="cal-header">Lun</div>
+      <div class="cal-header">Mar</div>
+      <div class="cal-header">Mié</div>
+      <div class="cal-header">Jue</div>
+      <div class="cal-header">Vie</div>
+      <div class="cal-header wknd">Sáb</div>
+      <div class="cal-header wknd">Dom</div>
+      <!-- celdas del mes se inyectan por JS -->
+    </div>
+
+    <div id="msg" class="msg"></div>
+  </div>
+
+  <!-- Supabase -->
+  <script>
+    window.SUPABASE_URL = "https://kbasekvgsevtwjypzznz.supabase.co";
+    window.SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiYXNla3Znc2V2dHdqeXB6em56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIwNTg3NjUsImV4cCI6MjA3NzYzNDc2NX0.a38X1iS6xhlcoVlrjQ99BcoiVf9REMuVzYR82wYnWHY";
+  </script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm"></script>
+  <script type="module" src="manager-calendar.js?v=2026.11.04b"></script>
+</body>
+</html>
