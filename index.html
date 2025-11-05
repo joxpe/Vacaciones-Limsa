@@ -12,8 +12,14 @@
     <p class="hint">Selecciona tu nombre y el rango de fechas. Las reglas se validan automáticamente (status = Pendiente).</p>
 
     <div class="card">
-      <label for="search">Buscar nombre</label>
-      <input type="text" id="search" placeholder="Escribe para fi ltrar…">
+      <!-- Filtro por bodega -->
+      <label for="warehouse">Bodega</label>
+      <select id="warehouse">
+        <option value="">Todas las bodegas</option>
+      </select>
+
+      <label for="search" style="margin-top:10px;">Buscar nombre</label>
+      <input type="text" id="search" placeholder="Escribe para filtrar…">
 
       <label for="employee" style="margin-top:10px;">Colaborador</label>
       <select id="employee">
@@ -58,7 +64,6 @@
     window.SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiYXNla3Znc2V2dHdqeXB6em56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIwNTg3NjUsImV4cCI6MjA3NzYzNDc2NX0.a38X1iS6xhlcoVlrjQ99BcoiVf9REMuVzYR82wYnWHY";
   </script>
   <script type="module" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm"></script>
-  <!-- cache-bust menor -->
-  <script type="module" src="main.js?v=2026.11.04f"></script>
+  <script type="module" src="main.js?v=2026.11.04g"></script>
 </body>
 </html>
