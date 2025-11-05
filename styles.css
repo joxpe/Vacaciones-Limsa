@@ -125,3 +125,22 @@ details.card summary {
   .grid { grid-template-columns: 1fr; }
   .container { margin: 24px auto; }
 }
+.calendar-link {
+  text-align: center;
+  margin: 20px 0;
+}
+
+.calendar-button {
+  display: inline-block;
+  background-color: #007BFF;
+  color: white;
+  font-weight: bold;
+  padding: 12px 20px;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: background-color 0.3s ease;
+}
+
+.calendar-button:hover {
+  background-color: #0056b3;
+}
