@@ -1,3 +1,4 @@
+// main.js
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
 
 const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
@@ -65,7 +66,6 @@ function renderEmployees(list){
     list.map(e => `<option value="${e.id}">${e.nombre}</option>`).join('');
 }
 function renderWarehouses(){
-  // bodegas únicas (incluye "(Sin bodega)" para nulos)
   const coll = new Intl.Collator('es-MX');
   const uniq = Array.from(new Set(EMPLOYEES.map(e => e.bodega ?? '(Sin bodega)'))).sort(coll.compare);
   $wh.innerHTML = [
@@ -77,7 +77,7 @@ function renderWarehouses(){
 // ==== Filtro combinado por bodega + nombre ====
 function applyFilter(){
   const q = norm($search.value);
-  const selectedBod = $wh.value; // "" = todas, otro = exact match del display
+  const selectedBod = $wh.value; // "" = todas
 
   let list = EMPLOYEES;
 
@@ -91,27 +91,17 @@ function applyFilter(){
   renderEmployees(list);
 }
 
-// ==== Carga de empleados (RPC preferida; SELECT fallback) ====
+// ==== Carga de empleados (RPC v2) ====
 async function loadEmployees(){
-  let data = null, error = null;
+  // 👇 Cambiamos a employees_public_v2 (trae bodega, departamento, localizacion)
+  const rpc = await supabase.rpc('employees_public_v2');
 
-  const rpc = await supabase.rpc('employees_public');
-  if(!rpc.error && rpc.data){
-    data = rpc.data;
-  } else {
-    const res = await supabase
-      .from('employees')
-      .select('id, nombre, bodega, departamento, localizacion')
-      .order('nombre', { ascending: true });
-    data = res.data; error = res.error;
-  }
-
-  if(error){
-    showMsg('Error cargando colaboradores: ' + (error.message || JSON.stringify(error)));
+  if (rpc.error || !Array.isArray(rpc.data)) {
+    showMsg('Error cargando colaboradores: ' + (rpc.error?.message || 'sin datos'));
     return;
   }
 
-  EMPLOYEES = (data || []).map(r => ({
+  EMPLOYEES = rpc.data.map(r => ({
     id: r.id,
     nombre: r.nombre,
     bodega: r.bodega ?? null,
@@ -120,7 +110,8 @@ async function loadEmployees(){
   }));
 
   renderWarehouses();   // poblar select de bodegas
-  applyFilter();        // render de empleados con filtros actuales
+  applyFilter();        // render inicial de nombres con filtros
+  showMsg('', true);
 }
 
 // ==== Panel de info del empleado ====
@@ -273,7 +264,6 @@ $search.addEventListener('keydown', (ev) => {
 
 // Cambio de bodega => resetea selección y aplica filtro
 $wh.addEventListener('change', () => {
-  // limpiar selección de colaborador y UI
   $emp.value = '';
   CURRENT_EMP = null;
   $empInfo.hidden = true;
@@ -281,7 +271,7 @@ $wh.addEventListener('change', () => {
   showMsg('', true);
   $start.value = '';
   $end.value = '';
-  applyFilter(); // vuelve a renderizar nombres para la bodega seleccionada
+  applyFilter();
 });
 
 // Cambio de colaborador
