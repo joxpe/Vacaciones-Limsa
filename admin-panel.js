@@ -1,13 +1,13 @@
-// admin-panel.js (versión simple con filtro + RPCs para aprobar/rechazar/editar/borrar)
+// admin-panel.js (filtros: bodega + estado; acciones por RPC; passwd local)
 // - Contraseña local: "limsa2026"
-// - Usa anon key, sin Auth.
-// - Borrado: vacation_requests_delete(req_id, emp_id)  [ya lo tenías creado]
-// - Aprobar: vacation_requests_approve(req_id)
-// - Rechazar: vacation_requests_reject(req_id)
-// - Editar fechas: vacation_requests_update_dates(req_id, new_start, new_end)
+// - Usa anon key (sin Auth)
+// - RPCs requeridos (SECURITY DEFINER):
+//   vacation_requests_delete(req_id uuid, emp_id uuid) -> boolean
+//   vacation_requests_approve(req_id uuid) -> boolean
+//   vacation_requests_reject(req_id uuid) -> boolean
+//   vacation_requests_update_dates(req_id uuid, new_start date, new_end date) -> boolean
 
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
-
 const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
 const LOCAL_PASSWORD = "limsa2026";
@@ -19,6 +19,7 @@ const $  = (sel) => document.querySelector(sel);
 const pick = (obj, keys) => { for (const k of keys) if (obj && obj[k] != null && String(obj[k]).trim() !== "") return obj[k]; };
 const escapeHtml = (s) => String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
 
+// UI
 const loginScreen = $("#login-screen");
 const adminPanel  = $("#admin-panel");
 const loginBtn    = $("#login-btn");
@@ -27,10 +28,13 @@ const refreshBtn  = $("#refresh-btn");
 const vacList     = $("#vac-list");
 const errorMsg    = $("#login-error");
 const fBodegaSel  = $("#f-bodega");
+const fStatusSel  = $("#f-status");
 
+// Estado
 let VAC_DATA = [];
 let EMP_BY_ID = {};
 let CURRENT_BODEGA = "";
+let CURRENT_STATUS = ""; // "", "Aprobado", "Rechazado"
 
 loginBtn.addEventListener("click", async () => {
   errorMsg.textContent = "";
@@ -51,6 +55,12 @@ refreshBtn.addEventListener("click", loadVacations);
 if (fBodegaSel) {
   fBodegaSel.addEventListener("change", () => {
     CURRENT_BODEGA = fBodegaSel.value || "";
+    renderList();
+  });
+}
+if (fStatusSel) {
+  fStatusSel.addEventListener("change", () => {
+    CURRENT_STATUS = fStatusSel.value || "";
     renderList();
   });
 }
@@ -101,10 +111,17 @@ function renderList() {
 
   const rows = VAC_DATA
     .filter(v => {
-      if (!CURRENT_BODEGA) return true;
-      const e = EMP_BY_ID[v.employee_id] || {};
-      const bod = pick(e, WH_CANDIDATES) ?? "";
-      return String(bod) === CURRENT_BODEGA;
+      // Filtro por bodega
+      if (CURRENT_BODEGA) {
+        const e = EMP_BY_ID[v.employee_id] || {};
+        const bod = pick(e, WH_CANDIDATES) ?? "";
+        if (String(bod) !== CURRENT_BODEGA) return false;
+      }
+      // Filtro por estado
+      if (CURRENT_STATUS) {
+        if ((v.status || "") !== CURRENT_STATUS) return false;
+      }
+      return true;
     })
     .map(v => {
       const e = EMP_BY_ID[v.employee_id] || {};
@@ -134,7 +151,7 @@ function renderList() {
   vacList.innerHTML = rows.length ? rows.join("") : "<p>Sin resultados para el filtro seleccionado.</p>";
 }
 
-// ── Acciones con RPCs ──────────────────────────────────────────────────────────
+// ── Acciones por RPC ───────────────────────────────────────────────────────────
 window.authorize = async (id) => {
   if (!confirm("¿Autorizar esta solicitud?")) return;
   const { data, error } = await supabase.rpc("vacation_requests_approve", { req_id: id });
