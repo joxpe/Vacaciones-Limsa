@@ -48,3 +48,9 @@ body {
 .vac-item button {
   margin-left: 10px;
 }
+
+.badge { padding:2px 6px; border-radius:6px; font-weight:600; border:1px solid #ddd; background:#f7f7f7; }
+.badge.aprobado  { background:#e6ffed; border-color:#34a853; }
+.badge.rechazado { background:#ffecec; border-color:#ea4335; }
+.badge.pendiente,
+.badge.propuesta { background:#fff8e6; border-color:#fbbc05; }
