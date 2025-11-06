@@ -54,3 +54,23 @@ body {
 .badge.rechazado { background:#ffecec; border-color:#ea4335; }
 .badge.pendiente,
 .badge.propuesta { background:#fff8e6; border-color:#fbbc05; }
+
+.back-link {
+  text-align: left;
+  margin: 15px;
+}
+
+.back-button {
+  display: inline-block;
+  background-color: #6c757d;
+  color: white;
+  font-weight: bold;
+  padding: 10px 16px;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: background-color 0.3s ease;
+}
+
+.back-button:hover {
+  background-color: #5a6268;
+}
