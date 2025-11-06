@@ -1,34 +1,29 @@
-// admin-panel.js
-// Versión: 2026.11.05-auth3
+// admin-panel.js (versión simple con contraseña local)
+// Usa solo la anon key; NO usa Supabase Auth.
+// Contraseña local: "limsa2026"
 
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Supabase client
-// ───────────────────────────────────────────────────────────────────────────────
 const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
-// Correo del usuario admin creado en Supabase Auth
-const ADMIN_EMAIL = "jpedroza@limsa365.com.mx";
-
 // ───────────────────────────────────────────────────────────────────────────────
-/** Utilidades */
+// Ajustes
 // ───────────────────────────────────────────────────────────────────────────────
-const $ = (sel) => document.querySelector(sel);
+const LOCAL_PASSWORD = "limsa2026";
 
-const pick = (obj, keys) => {
-  for (const k of keys) {
-    if (obj && obj[k] != null && String(obj[k]).trim() !== "") return obj[k];
-  }
-  return undefined;
-};
-
-// Campos candidatos posibles en employees (para no depender de nombres exactos)
+// Detectores genéricos de columnas en employees
 const NAME_CANDIDATES = ["nombre", "name", "full_name", "display_name", "empleado"];
 const WH_CANDIDATES   = ["bodega", "warehouse", "almacen", "site", "location", "ubicacion"];
 
+const $  = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+const pick = (obj, keys) => {
+  for (const k of keys) if (obj && obj[k] != null && String(obj[k]).trim() !== "") return obj[k];
+  return undefined;
+};
+
 // ───────────────────────────────────────────────────────────────────────────────
-// Elementos UI
+// UI
 // ───────────────────────────────────────────────────────────────────────────────
 const loginScreen = $("#login-screen");
 const adminPanel  = $("#admin-panel");
@@ -38,68 +33,28 @@ const refreshBtn  = $("#refresh-btn");
 const vacList     = $("#vac-list");
 const errorMsg    = $("#login-error");
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Sesión: si ya está logueado, entrar directo
-// ───────────────────────────────────────────────────────────────────────────────
-(async () => {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session) {
-    loginScreen.classList.add("hidden");
-    adminPanel.classList.remove("hidden");
-
-// DEBUG: ver sesión y UID
-(async () => {
-  const { data: { session }, error } = await supabase.auth.getSession();
-  console.log("SESSION:", session?.user?.id, error || "");
-})();
-
-    
-    loadVacations();
-  }
-})();
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Login real (Auth) con el correo fijo y la contraseña del input
-// ───────────────────────────────────────────────────────────────────────────────
 loginBtn.addEventListener("click", async () => {
   errorMsg.textContent = "";
   const pass = $("#admin-pass").value.trim();
-  if (!pass) { errorMsg.textContent = "Ingresa la contraseña"; return; }
-
-  const { error } = await supabase.auth.signInWithPassword({
-    email: ADMIN_EMAIL,
-    password: pass
-  });
-
-  if (error) {
+  if (pass !== LOCAL_PASSWORD) {
     errorMsg.textContent = "Contraseña incorrecta";
     return;
   }
-
   loginScreen.classList.add("hidden");
   adminPanel.classList.remove("hidden");
   loadVacations();
 });
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Logout
-// ───────────────────────────────────────────────────────────────────────────────
-logoutBtn.addEventListener("click", async () => {
-  await supabase.auth.signOut();
+logoutBtn.addEventListener("click", () => {
   adminPanel.classList.add("hidden");
   loginScreen.classList.remove("hidden");
+  // opcional: limpiar campos
 });
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Refrescar
-// ───────────────────────────────────────────────────────────────────────────────
 refreshBtn.addEventListener("click", loadVacations);
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Cargar solicitudes + datos de empleados (2 consultas sin join)
-// Requiere policies RLS:
-//   - vacation_requests: admins full access (for all) y (opcional) select público
-//   - employees: select público o autenticado
+// Carga de solicitudes + empleados (2 consultas, sin JOIN)
 // ───────────────────────────────────────────────────────────────────────────────
 async function loadVacations() {
   vacList.innerHTML = "<p>Cargando...</p>";
@@ -111,7 +66,7 @@ async function loadVacations() {
     .order("start_date", { ascending: true });
 
   if (err1) {
-    vacList.innerHTML = `<p style="color:red;">Error: ${err1.message}</p>`;
+    vacList.innerHTML = `<p style="color:red;">Error al leer solicitudes: ${err1.message}</p>`;
     console.error(err1);
     return;
   }
@@ -120,7 +75,7 @@ async function loadVacations() {
     return;
   }
 
-  // 2) Empleados (ids únicos)
+  // 2) Empleados
   const empIds = [...new Set(vacs.map(v => v.employee_id).filter(Boolean))];
   let empById = {};
   if (empIds.length > 0) {
@@ -130,7 +85,6 @@ async function loadVacations() {
       .in("id", empIds);
 
     if (err2) {
-      // Si falla leer employees, igual mostramos la lista con employee_id
       console.warn("No se pudieron cargar empleados:", err2.message);
     } else if (emps) {
       for (const e of emps) empById[e.id] = e;
@@ -140,7 +94,7 @@ async function loadVacations() {
   // Render
   vacList.innerHTML = vacs.map(v => {
     const e = empById[v.employee_id] || {};
-    const nombre = pick(e, NAME_CANDIDATES) ?? `Empleado ${String(v.employee_id).slice(0,8)}`;
+    const nombre = pick(e, NAME_CANDIDATES) ?? `Empleado ${String(v.employee_id).slice(0, 8)}`;
     const bodega = pick(e, WH_CANDIDATES)   ?? "-";
     return `
       <div class="vac-item">
@@ -164,15 +118,18 @@ async function loadVacations() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Acciones (valores válidos por CHECK: Propuesta, Pendiente, Aprobado, Rechazado)
+// Acciones (espera que la BD lo permita con el rol anon).
 // ───────────────────────────────────────────────────────────────────────────────
 window.authorize = async (id) => {
   const { error } = await supabase
     .from("vacation_requests")
     .update({ status: "Aprobado" })
     .eq("id", id);
-  if (error) alert("Error: " + error.message);
-  else loadVacations();
+  if (error) {
+    alert("No se pudo autorizar: " + error.message);
+  } else {
+    loadVacations();
+  }
 };
 
 window.reject = async (id) => {
@@ -180,8 +137,11 @@ window.reject = async (id) => {
     .from("vacation_requests")
     .update({ status: "Rechazado" })
     .eq("id", id);
-  if (error) alert("Error: " + error.message);
-  else loadVacations();
+  if (error) {
+    alert("No se pudo rechazar: " + error.message);
+  } else {
+    loadVacations();
+  }
 };
 
 window.editDate = async (id, start, end) => {
@@ -194,16 +154,24 @@ window.editDate = async (id, start, end) => {
     .update({ start_date: newStart, end_date: newEnd })
     .eq("id", id);
 
-  if (error) alert("Error: " + error.message);
-  else loadVacations();
+  if (error) {
+    alert("No se pudo editar: " + error.message);
+  } else {
+    loadVacations();
+  }
 };
 
 window.deleteVac = async (id) => {
   if (!confirm("¿Eliminar esta solicitud?")) return;
+
   const { error } = await supabase
     .from("vacation_requests")
     .delete()
     .eq("id", id);
-  if (error) alert("Error: " + error.message);
-  else loadVacations();
+
+  if (error) {
+    alert("No se pudo eliminar: " + error.message);
+  } else {
+    loadVacations();
+  }
 };
