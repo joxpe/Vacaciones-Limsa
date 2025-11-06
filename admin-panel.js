@@ -1,36 +1,24 @@
-// admin-panel.js (versión simple con filtro + delete por RPC como main.js)
-// - Usa solo la anon key (no Auth).
+// admin-panel.js (versión simple con filtro + RPCs para aprobar/rechazar/editar/borrar)
 // - Contraseña local: "limsa2026"
-// - Carga solicitudes + empleados (2 consultas, sin JOIN).
-// - Filtro por bodega.
-// - Autorizar/Rechazar/Editar por update().
-// - Borrar por RPC: vacation_requests_delete(req_id, emp_id)
+// - Usa anon key, sin Auth.
+// - Borrado: vacation_requests_delete(req_id, emp_id)  [ya lo tenías creado]
+// - Aprobar: vacation_requests_approve(req_id)
+// - Rechazar: vacation_requests_reject(req_id)
+// - Editar fechas: vacation_requests_update_dates(req_id, new_start, new_end)
 
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
 
 const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Ajustes
-// ───────────────────────────────────────────────────────────────────────────────
 const LOCAL_PASSWORD = "limsa2026";
 
-// Detectores genéricos de columnas en employees
 const NAME_CANDIDATES = ["nombre", "name", "full_name", "display_name", "empleado"];
 const WH_CANDIDATES   = ["bodega", "warehouse", "almacen", "site", "location", "ubicacion"];
 
 const $  = (sel) => document.querySelector(sel);
-const pick = (obj, keys) => {
-  for (const k of keys) if (obj && obj[k] != null && String(obj[k]).trim() !== "") return obj[k];
-  return undefined;
-};
-const escapeHtml = (s) =>
-  String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
-           .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+const pick = (obj, keys) => { for (const k of keys) if (obj && obj[k] != null && String(obj[k]).trim() !== "") return obj[k]; };
+const escapeHtml = (s) => String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
 
-// ───────────────────────────────────────────────────────────────────────────────
-// UI
-// ───────────────────────────────────────────────────────────────────────────────
 const loginScreen = $("#login-screen");
 const adminPanel  = $("#admin-panel");
 const loginBtn    = $("#login-btn");
@@ -40,12 +28,10 @@ const vacList     = $("#vac-list");
 const errorMsg    = $("#login-error");
 const fBodegaSel  = $("#f-bodega");
 
-// Estado en memoria
-let VAC_DATA = [];       // solicitudes
-let EMP_BY_ID = {};      // mapa empleado -> datos
-let CURRENT_BODEGA = ""; // filtro actual
+let VAC_DATA = [];
+let EMP_BY_ID = {};
+let CURRENT_BODEGA = "";
 
-// Login local
 loginBtn.addEventListener("click", async () => {
   errorMsg.textContent = "";
   const pass = $("#admin-pass").value.trim();
@@ -62,7 +48,6 @@ logoutBtn.addEventListener("click", () => {
 
 refreshBtn.addEventListener("click", loadVacations);
 
-// Cambio de filtro
 if (fBodegaSel) {
   fBodegaSel.addEventListener("change", () => {
     CURRENT_BODEGA = fBodegaSel.value || "";
@@ -70,68 +55,47 @@ if (fBodegaSel) {
   });
 }
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Carga de datos
-// ───────────────────────────────────────────────────────────────────────────────
 async function loadVacations() {
   vacList.innerHTML = "<p>Cargando...</p>";
 
-  // 1) Solicitudes
   const { data: vacs, error: err1 } = await supabase
     .from("vacation_requests")
     .select("id, employee_id, start_date, end_date, status, created_at")
     .order("start_date", { ascending: true });
 
-  if (err1) {
-    vacList.innerHTML = `<p style="color:red;">Error al leer solicitudes: ${err1.message}</p>`;
-    console.error(err1);
-    return;
-  }
+  if (err1) { vacList.innerHTML = `<p style="color:red;">Error al leer solicitudes: ${err1.message}</p>`; console.error(err1); return; }
   VAC_DATA = vacs || [];
   if (VAC_DATA.length === 0) { vacList.innerHTML = "<p>No hay solicitudes registradas.</p>"; return; }
 
-  // 2) Empleados
   const empIds = [...new Set(VAC_DATA.map(v => v.employee_id).filter(Boolean))];
   EMP_BY_ID = {};
   if (empIds.length > 0) {
-    const { data: emps, error: err2 } = await supabase
-      .from("employees")
-      .select("*")
-      .in("id", empIds);
-
-    if (err2) {
-      console.warn("No se pudieron cargar empleados:", err2.message);
-    } else if (emps) {
-      for (const e of emps) EMP_BY_ID[e.id] = e;
-    }
+    const { data: emps, error: err2 } = await supabase.from("employees").select("*").in("id", empIds);
+    if (err2) console.warn("No se pudieron cargar empleados:", err2.message);
+    else if (emps) for (const e of emps) EMP_BY_ID[e.id] = e;
   }
 
   populateBodegaFilter();
   renderList();
 }
 
-// Llena el combo de bodega con valores únicos
 function populateBodegaFilter() {
   if (!fBodegaSel) return;
-
   const bodegasSet = new Set();
   for (const emp of Object.values(EMP_BY_ID)) {
     const bod = pick(emp, WH_CANDIDATES);
     if (bod) bodegasSet.add(String(bod));
   }
-
   const current = CURRENT_BODEGA;
   const opts = [`<option value="">Todas</option>`];
   [...bodegasSet].sort((a,b) => a.localeCompare(b, 'es')).forEach(b => {
     const sel = (b === current) ? ' selected' : '';
     opts.push(`<option value="${escapeHtml(b)}"${sel}>${escapeHtml(b)}</option>`);
   });
-
   fBodegaSel.innerHTML = opts.join("");
   if (current && !bodegasSet.has(current)) CURRENT_BODEGA = "";
 }
 
-// Render con filtro
 function renderList() {
   if (!VAC_DATA || VAC_DATA.length === 0) { vacList.innerHTML = "<p>No hay solicitudes registradas.</p>"; return; }
 
@@ -170,67 +134,38 @@ function renderList() {
   vacList.innerHTML = rows.length ? rows.join("") : "<p>Sin resultados para el filtro seleccionado.</p>";
 }
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Acciones (update/delete)
-// ───────────────────────────────────────────────────────────────────────────────
+// ── Acciones con RPCs ──────────────────────────────────────────────────────────
 window.authorize = async (id) => {
   if (!confirm("¿Autorizar esta solicitud?")) return;
-  const { error } = await supabase
-    .from("vacation_requests")
-    .update({ status: "Aprobado" })
-    .eq("id", id);
-  if (error) alert("No se pudo autorizar: " + error.message);
-  else loadVacations();
+  const { data, error } = await supabase.rpc("vacation_requests_approve", { req_id: id });
+  if (error || data !== true) { alert("No se pudo autorizar: " + (error?.message || "RPC devolvió falso")); return; }
+  loadVacations();
 };
 
 window.reject = async (id) => {
   if (!confirm("¿Rechazar esta solicitud?")) return;
-  const { error } = await supabase
-    .from("vacation_requests")
-    .update({ status: "Rechazado" })
-    .eq("id", id);
-  if (error) alert("No se pudo rechazar: " + error.message);
-  else loadVacations();
+  const { data, error } = await supabase.rpc("vacation_requests_reject", { req_id: id });
+  if (error || data !== true) { alert("No se pudo rechazar: " + (error?.message || "RPC devolvió falso")); return; }
+  loadVacations();
 };
 
 window.editDate = async (id, start, end) => {
   const newStart = prompt("Nueva fecha de inicio (YYYY-MM-DD):", start);
   const newEnd   = prompt("Nueva fecha de fin (YYYY-MM-DD):", end);
   if (!newStart || !newEnd) return;
-
-  const { error } = await supabase
-    .from("vacation_requests")
-    .update({ start_date: newStart, end_date: newEnd })
-    .eq("id", id);
-
-  if (error) alert("No se pudo editar: " + error.message);
-  else loadVacations();
+  const { data, error } = await supabase.rpc("vacation_requests_update_dates", {
+    req_id: id, new_start: newStart, new_end: newEnd
+  });
+  if (error || data !== true) { alert("No se pudo editar: " + (error?.message || "RPC devolvió falso")); return; }
+  loadVacations();
 };
 
-// Borrado REAL usando el mismo RPC que main.js
 window.deleteVac = async (id) => {
   if (!confirm("¿Eliminar esta solicitud?")) return;
-
-  // Buscar employee_id en memoria
   const row = (VAC_DATA || []).find(v => v.id === id);
   const empId = row?.employee_id;
   if (!empId) { alert("No se pudo identificar al empleado de la solicitud."); return; }
-
-  const { data, error } = await supabase.rpc("vacation_requests_delete", {
-    req_id: id,
-    emp_id: empId
-  });
-
-  if (error) {
-    alert("No se pudo eliminar: " + (error.message || JSON.stringify(error)));
-    return;
-  }
-
-  if (!data) {
-    // RPC puede devolver null/false si no cumple condición (p.ej. no está Pendiente)
-    alert("No se pudo eliminar: ¿la solicitud no está en estado permitido para eliminar?");
-    return;
-  }
-
-  await loadVacations();
+  const { data, error } = await supabase.rpc("vacation_requests_delete", { req_id: id, emp_id: empId });
+  if (error || data !== true) { alert("No se pudo eliminar: " + (error?.message || "RPC devolvió falso")); return; }
+  loadVacations();
 };
