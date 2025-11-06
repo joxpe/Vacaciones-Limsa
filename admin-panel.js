@@ -1,5 +1,10 @@
-// admin-panel.js (versión simple + filtro por bodega)
-// Contraseña local: "limsa2026" (no usa Supabase Auth)
+// admin-panel.js (versión simple con filtro + delete por RPC como main.js)
+// - Usa solo la anon key (no Auth).
+// - Contraseña local: "limsa2026"
+// - Carga solicitudes + empleados (2 consultas, sin JOIN).
+// - Filtro por bodega.
+// - Autorizar/Rechazar/Editar por update().
+// - Borrar por RPC: vacation_requests_delete(req_id, emp_id)
 
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
 
@@ -15,11 +20,13 @@ const NAME_CANDIDATES = ["nombre", "name", "full_name", "display_name", "emplead
 const WH_CANDIDATES   = ["bodega", "warehouse", "almacen", "site", "location", "ubicacion"];
 
 const $  = (sel) => document.querySelector(sel);
-const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 const pick = (obj, keys) => {
   for (const k of keys) if (obj && obj[k] != null && String(obj[k]).trim() !== "") return obj[k];
   return undefined;
 };
+const escapeHtml = (s) =>
+  String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+           .replaceAll('"',"&quot;").replaceAll("'","&#039;");
 
 // ───────────────────────────────────────────────────────────────────────────────
 // UI
@@ -33,21 +40,16 @@ const vacList     = $("#vac-list");
 const errorMsg    = $("#login-error");
 const fBodegaSel  = $("#f-bodega");
 
-// Estado en memoria para renderizar rápido
+// Estado en memoria
 let VAC_DATA = [];       // solicitudes
 let EMP_BY_ID = {};      // mapa empleado -> datos
 let CURRENT_BODEGA = ""; // filtro actual
 
-// ───────────────────────────────────────────────────────────────────────────────
 // Login local
-// ───────────────────────────────────────────────────────────────────────────────
 loginBtn.addEventListener("click", async () => {
   errorMsg.textContent = "";
   const pass = $("#admin-pass").value.trim();
-  if (pass !== LOCAL_PASSWORD) {
-    errorMsg.textContent = "Contraseña incorrecta";
-    return;
-  }
+  if (pass !== LOCAL_PASSWORD) { errorMsg.textContent = "Contraseña incorrecta"; return; }
   loginScreen.classList.add("hidden");
   adminPanel.classList.remove("hidden");
   loadVacations();
@@ -60,7 +62,7 @@ logoutBtn.addEventListener("click", () => {
 
 refreshBtn.addEventListener("click", loadVacations);
 
-// Cambios del filtro
+// Cambio de filtro
 if (fBodegaSel) {
   fBodegaSel.addEventListener("change", () => {
     CURRENT_BODEGA = fBodegaSel.value || "";
@@ -68,6 +70,8 @@ if (fBodegaSel) {
   });
 }
 
+// ───────────────────────────────────────────────────────────────────────────────
+// Carga de datos
 // ───────────────────────────────────────────────────────────────────────────────
 async function loadVacations() {
   vacList.innerHTML = "<p>Cargando...</p>";
@@ -84,11 +88,7 @@ async function loadVacations() {
     return;
   }
   VAC_DATA = vacs || [];
-
-  if (VAC_DATA.length === 0) {
-    vacList.innerHTML = "<p>No hay solicitudes registradas.</p>";
-    return;
-  }
+  if (VAC_DATA.length === 0) { vacList.innerHTML = "<p>No hay solicitudes registradas.</p>"; return; }
 
   // 2) Empleados
   const empIds = [...new Set(VAC_DATA.map(v => v.employee_id).filter(Boolean))];
@@ -106,14 +106,11 @@ async function loadVacations() {
     }
   }
 
-  // Poblar el combo de Bodega (único, ordenado)
   populateBodegaFilter();
-
-  // Render inicial
   renderList();
 }
 
-// Llena el <select> de bodega con valores únicos
+// Llena el combo de bodega con valores únicos
 function populateBodegaFilter() {
   if (!fBodegaSel) return;
 
@@ -123,28 +120,20 @@ function populateBodegaFilter() {
     if (bod) bodegasSet.add(String(bod));
   }
 
-  // Mantener "Todas" y regenerar opciones
   const current = CURRENT_BODEGA;
   const opts = [`<option value="">Todas</option>`];
-
   [...bodegasSet].sort((a,b) => a.localeCompare(b, 'es')).forEach(b => {
     const sel = (b === current) ? ' selected' : '';
     opts.push(`<option value="${escapeHtml(b)}"${sel}>${escapeHtml(b)}</option>`);
   });
 
   fBodegaSel.innerHTML = opts.join("");
-  // Si el filtro actual ya no existe, reset
-  if (current && !bodegasSet.has(current)) {
-    CURRENT_BODEGA = "";
-  }
+  if (current && !bodegasSet.has(current)) CURRENT_BODEGA = "";
 }
 
-// Render de la lista aplicando el filtro
+// Render con filtro
 function renderList() {
-  if (!VAC_DATA || VAC_DATA.length === 0) {
-    vacList.innerHTML = "<p>No hay solicitudes registradas.</p>";
-    return;
-  }
+  if (!VAC_DATA || VAC_DATA.length === 0) { vacList.innerHTML = "<p>No hay solicitudes registradas.</p>"; return; }
 
   const rows = VAC_DATA
     .filter(v => {
@@ -181,18 +170,8 @@ function renderList() {
   vacList.innerHTML = rows.length ? rows.join("") : "<p>Sin resultados para el filtro seleccionado.</p>";
 }
 
-// Pequeña ayuda para escapar HTML en strings
-function escapeHtml(s) {
-  return String(s)
-    .replaceAll("&","&amp;")
-    .replaceAll("<","&lt;")
-    .replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;")
-    .replaceAll("'","&#039;");
-}
-
 // ───────────────────────────────────────────────────────────────────────────────
-// Acciones
+// Acciones (update/delete)
 // ───────────────────────────────────────────────────────────────────────────────
 window.authorize = async (id) => {
   if (!confirm("¿Autorizar esta solicitud?")) return;
@@ -224,24 +203,34 @@ window.editDate = async (id, start, end) => {
     .update({ start_date: newStart, end_date: newEnd })
     .eq("id", id);
 
-  if (error) {
-    alert("No se pudo editar: " + error.message);
-  } else {
-    loadVacations();
-  }
+  if (error) alert("No se pudo editar: " + error.message);
+  else loadVacations();
 };
 
+// Borrado REAL usando el mismo RPC que main.js
 window.deleteVac = async (id) => {
   if (!confirm("¿Eliminar esta solicitud?")) return;
 
-  const { error } = await supabase
-    .from("vacation_requests")
-    .delete()
-    .eq("id", id);
+  // Buscar employee_id en memoria
+  const row = (VAC_DATA || []).find(v => v.id === id);
+  const empId = row?.employee_id;
+  if (!empId) { alert("No se pudo identificar al empleado de la solicitud."); return; }
+
+  const { data, error } = await supabase.rpc("vacation_requests_delete", {
+    req_id: id,
+    emp_id: empId
+  });
 
   if (error) {
-    alert("No se pudo eliminar: " + error.message);
-  } else {
-    loadVacations();
+    alert("No se pudo eliminar: " + (error.message || JSON.stringify(error)));
+    return;
   }
+
+  if (!data) {
+    // RPC puede devolver null/false si no cumple condición (p.ej. no está Pendiente)
+    alert("No se pudo eliminar: ¿la solicitud no está en estado permitido para eliminar?");
+    return;
+  }
+
+  await loadVacations();
 };
