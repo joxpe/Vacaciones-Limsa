@@ -2,7 +2,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
-// 🔐 Contraseña de administrador (solo tú la conoces)
+// 🔐 Contraseña de administrador
 const ADMIN_PASSWORD = "limsa2026";
 
 // Elementos del DOM
@@ -35,7 +35,7 @@ logoutBtn.addEventListener("click", () => {
 // 🔄 Refrescar lista
 refreshBtn.addEventListener("click", loadVacations);
 
-// 🧾 Cargar solicitudes con datos del empleado
+// 🧾 Cargar solicitudes con datos del empleado (join explícito por el FK)
 async function loadVacations() {
   vacList.innerHTML = "<p>Cargando...</p>";
 
@@ -47,10 +47,10 @@ async function loadVacations() {
       end_date,
       status,
       created_at,
-      employees (
+      employees:employees!vacation_requests_employee_id_fkey (
         id,
-        full_name,
-        warehouse
+        nombre,
+        bodega
       )
     `)
     .order("start_date", { ascending: true });
@@ -69,10 +69,12 @@ async function loadVacations() {
   vacList.innerHTML = data
     .map((v) => {
       const emp = v.employees || {};
+      const nombre = emp.nombre ?? "Sin nombre";
+      const bodega = emp.bodega ?? "-";
       return `
         <div class="vac-item">
           <div>
-            <strong>${emp.full_name ?? "Sin nombre"}</strong> (${emp.warehouse ?? "-"})<br>
+            <strong>${nombre}</strong> (${bodega})<br>
             ${v.start_date} → ${v.end_date}<br>
             Estado: <b>${v.status}</b>
           </div>
@@ -91,7 +93,7 @@ async function loadVacations() {
     .join("");
 }
 
-// ✅ Autorizar solicitud
+// ✅ Autorizar solicitud (status válido según tu CHECK)
 window.authorize = async (id) => {
   const { error } = await supabase
     .from("vacation_requests")
@@ -116,6 +118,7 @@ window.editDate = async (id, start, end) => {
   const newStart = prompt("Nueva fecha de inicio (YYYY-MM-DD):", start);
   const newEnd = prompt("Nueva fecha de fin (YYYY-MM-DD):", end);
   if (!newStart || !newEnd) return;
+
   const { error } = await supabase
     .from("vacation_requests")
     .update({
@@ -123,6 +126,7 @@ window.editDate = async (id, start, end) => {
       end_date: newEnd,
     })
     .eq("id", id);
+
   if (error) alert("Error: " + error.message);
   else loadVacations();
 };
@@ -134,6 +138,7 @@ window.deleteVac = async (id) => {
     .from("vacation_requests")
     .delete()
     .eq("id", id);
+
   if (error) alert("Error: " + error.message);
   else loadVacations();
 };
