@@ -33,7 +33,7 @@ refreshBtn.addEventListener("click", loadVacations);
 
 async function loadVacations() {
   vacList.innerHTML = "<p>Cargando...</p>";
-  const { data, error } = await supabase.from("vacaciones").select("*").order("fecha_inicio");
+  const { data, error } = await supabase.from("vacation_requests").select("*").order("fecha_inicio");
   if (error) {
     vacList.innerHTML = `<p style="color:red;">Error: ${error.message}</p>`;
     return;
@@ -56,7 +56,7 @@ async function loadVacations() {
 }
 
 window.authorize = async (id) => {
-  await supabase.from("vacaciones").update({ estado: "AUTORIZADA" }).eq("id", id);
+  await supabase.from("vacation_requests").update({ estado: "AUTORIZADA" }).eq("id", id);
   loadVacations();
 };
 
@@ -64,7 +64,7 @@ window.editDate = async (id, inicio, fin) => {
   const newStart = prompt("Nueva fecha de inicio:", inicio);
   const newEnd = prompt("Nueva fecha de fin:", fin);
   if (!newStart || !newEnd) return;
-  await supabase.from("vacaciones").update({
+  await supabase.from("vacation_requests").update({
     fecha_inicio: newStart,
     fecha_fin: newEnd
   }).eq("id", id);
@@ -73,7 +73,7 @@ window.editDate = async (id, inicio, fin) => {
 
 window.deleteVac = async (id) => {
   if (confirm("¿Eliminar esta solicitud?")) {
-    await supabase.from("vacaciones").delete().eq("id", id);
+    await supabase.from("vacation_requests").delete().eq("id", id);
     loadVacations();
   }
 };
