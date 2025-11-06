@@ -2,9 +2,10 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
-// 🔐 Cambia esta contraseña solo tú la sabrás
+// 🔐 Contraseña de administrador (solo tú la conoces)
 const ADMIN_PASSWORD = "limsa2026";
 
+// Elementos del DOM
 const loginScreen = document.getElementById("login-screen");
 const adminPanel = document.getElementById("admin-panel");
 const loginBtn = document.getElementById("login-btn");
@@ -13,6 +14,7 @@ const refreshBtn = document.getElementById("refresh-btn");
 const vacList = document.getElementById("vac-list");
 const errorMsg = document.getElementById("login-error");
 
+// 🎯 Inicio de sesión
 loginBtn.addEventListener("click", () => {
   const pass = document.getElementById("admin-pass").value.trim();
   if (pass === ADMIN_PASSWORD) {
@@ -24,14 +26,16 @@ loginBtn.addEventListener("click", () => {
   }
 });
 
+// 🚪 Cerrar sesión
 logoutBtn.addEventListener("click", () => {
   adminPanel.classList.add("hidden");
   loginScreen.classList.remove("hidden");
 });
 
+// 🔄 Refrescar lista
 refreshBtn.addEventListener("click", loadVacations);
 
-// 🧭 Carga todas las solicitudes con datos del empleado
+// 🧾 Cargar solicitudes con datos del empleado
 async function loadVacations() {
   vacList.innerHTML = "<p>Cargando...</p>";
 
@@ -49,7 +53,7 @@ async function loadVacations() {
         warehouse
       )
     `)
-    .order("start_date");
+    .order("start_date", { ascending: true });
 
   if (error) {
     vacList.innerHTML = `<p style="color:red;">Error: ${error.message}</p>`;
@@ -57,31 +61,37 @@ async function loadVacations() {
     return;
   }
 
+  if (!data || data.length === 0) {
+    vacList.innerHTML = "<p>No hay solicitudes registradas.</p>";
+    return;
+  }
+
   vacList.innerHTML = data
     .map((v) => {
       const emp = v.employees || {};
       return `
-      <div class="vac-item">
-        <div>
-          <strong>${emp.full_name ?? "Sin nombre"}</strong> (${emp.warehouse ?? "-"})<br>
-          ${v.start_date} → ${v.end_date} <br>
-          Estado: <b>${v.status}</b>
+        <div class="vac-item">
+          <div>
+            <strong>${emp.full_name ?? "Sin nombre"}</strong> (${emp.warehouse ?? "-"})<br>
+            ${v.start_date} → ${v.end_date}<br>
+            Estado: <b>${v.status}</b>
+          </div>
+          <div>
+            ${
+              v.status !== "Aprobado"
+                ? `<button onclick="authorize('${v.id}')">✅ Autorizar</button>`
+                : `<button onclick="reject('${v.id}')">❌ Rechazar</button>`
+            }
+            <button onclick="editDate('${v.id}', '${v.start_date}', '${v.end_date}')">🗓 Editar</button>
+            <button onclick="deleteVac('${v.id}')">🗑</button>
+          </div>
         </div>
-        <div>
-          ${
-            v.status !== "Aprobado"
-              ? `<button onclick="authorize('${v.id}')">✅ Autorizar</button>`
-              : `<button onclick="reject('${v.id}')">❌ Rechazar</button>`
-          }
-          <button onclick="editDate('${v.id}', '${v.start_date}', '${v.end_date}')">🗓 Editar</button>
-          <button onclick="deleteVac('${v.id}')">🗑</button>
-        </div>
-      </div>`;
+      `;
     })
     .join("");
 }
 
-// ✅ Aprobar
+// ✅ Autorizar solicitud
 window.authorize = async (id) => {
   const { error } = await supabase
     .from("vacation_requests")
@@ -91,7 +101,7 @@ window.authorize = async (id) => {
   else loadVacations();
 };
 
-// ❌ Rechazar
+// ❌ Rechazar solicitud
 window.reject = async (id) => {
   const { error } = await supabase
     .from("vacation_requests")
@@ -117,7 +127,7 @@ window.editDate = async (id, start, end) => {
   else loadVacations();
 };
 
-// 🗑 Eliminar
+// 🗑 Eliminar solicitud
 window.deleteVac = async (id) => {
   if (!confirm("¿Eliminar esta solicitud?")) return;
   const { error } = await supabase
