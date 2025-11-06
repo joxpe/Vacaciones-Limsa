@@ -2,7 +2,7 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 
 const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
-// Cambia esta contraseña solo tú la sabrás:
+// 🔐 Cambia esta contraseña solo tú la sabrás
 const ADMIN_PASSWORD = "limsa2026";
 
 const loginScreen = document.getElementById("login-screen");
@@ -31,49 +31,99 @@ logoutBtn.addEventListener("click", () => {
 
 refreshBtn.addEventListener("click", loadVacations);
 
+// 🧭 Carga todas las solicitudes con datos del empleado
 async function loadVacations() {
   vacList.innerHTML = "<p>Cargando...</p>";
-  const { data, error } = await supabase.from("vacation_requests").select("*").order("fecha_inicio");
+
+  const { data, error } = await supabase
+    .from("vacation_requests")
+    .select(`
+      id,
+      start_date,
+      end_date,
+      status,
+      created_at,
+      employees (
+        id,
+        full_name,
+        warehouse
+      )
+    `)
+    .order("start_date");
+
   if (error) {
     vacList.innerHTML = `<p style="color:red;">Error: ${error.message}</p>`;
+    console.error(error);
     return;
   }
 
-  vacList.innerHTML = data.map(v => `
-    <div class="vac-item">
-      <div>
-        <strong>${v.nombre}</strong> (${v.bodega})<br>
-        ${v.fecha_inicio} → ${v.fecha_fin} <br>
-        Estado: ${v.estado}
-      </div>
-      <div>
-        <button onclick="authorize('${v.id}')">Autorizar</button>
-        <button onclick="editDate('${v.id}', '${v.fecha_inicio}', '${v.fecha_fin}')">Editar</button>
-        <button onclick="deleteVac('${v.id}')">🗑</button>
-      </div>
-    </div>
-  `).join("");
+  vacList.innerHTML = data
+    .map((v) => {
+      const emp = v.employees || {};
+      return `
+      <div class="vac-item">
+        <div>
+          <strong>${emp.full_name ?? "Sin nombre"}</strong> (${emp.warehouse ?? "-"})<br>
+          ${v.start_date} → ${v.end_date} <br>
+          Estado: <b>${v.status}</b>
+        </div>
+        <div>
+          ${
+            v.status !== "Aprobado"
+              ? `<button onclick="authorize('${v.id}')">✅ Autorizar</button>`
+              : `<button onclick="reject('${v.id}')">❌ Rechazar</button>`
+          }
+          <button onclick="editDate('${v.id}', '${v.start_date}', '${v.end_date}')">🗓 Editar</button>
+          <button onclick="deleteVac('${v.id}')">🗑</button>
+        </div>
+      </div>`;
+    })
+    .join("");
 }
 
+// ✅ Aprobar
 window.authorize = async (id) => {
-  await supabase.from("vacation_requests").update({ estado: "AUTORIZADA" }).eq("id", id);
-  loadVacations();
+  const { error } = await supabase
+    .from("vacation_requests")
+    .update({ status: "Aprobado" })
+    .eq("id", id);
+  if (error) alert("Error: " + error.message);
+  else loadVacations();
 };
 
-window.editDate = async (id, inicio, fin) => {
-  const newStart = prompt("Nueva fecha de inicio:", inicio);
-  const newEnd = prompt("Nueva fecha de fin:", fin);
+// ❌ Rechazar
+window.reject = async (id) => {
+  const { error } = await supabase
+    .from("vacation_requests")
+    .update({ status: "Rechazado" })
+    .eq("id", id);
+  if (error) alert("Error: " + error.message);
+  else loadVacations();
+};
+
+// 🗓 Editar fechas
+window.editDate = async (id, start, end) => {
+  const newStart = prompt("Nueva fecha de inicio (YYYY-MM-DD):", start);
+  const newEnd = prompt("Nueva fecha de fin (YYYY-MM-DD):", end);
   if (!newStart || !newEnd) return;
-  await supabase.from("vacation_requests").update({
-    fecha_inicio: newStart,
-    fecha_fin: newEnd
-  }).eq("id", id);
-  loadVacations();
+  const { error } = await supabase
+    .from("vacation_requests")
+    .update({
+      start_date: newStart,
+      end_date: newEnd,
+    })
+    .eq("id", id);
+  if (error) alert("Error: " + error.message);
+  else loadVacations();
 };
 
+// 🗑 Eliminar
 window.deleteVac = async (id) => {
-  if (confirm("¿Eliminar esta solicitud?")) {
-    await supabase.from("vacation_requests").delete().eq("id", id);
-    loadVacations();
-  }
+  if (!confirm("¿Eliminar esta solicitud?")) return;
+  const { error } = await supabase
+    .from("vacation_requests")
+    .delete()
+    .eq("id", id);
+  if (error) alert("Error: " + error.message);
+  else loadVacations();
 };
