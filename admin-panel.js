@@ -1,4 +1,4 @@
-// admin-panel.js (filtros: bodega + estado + empalmes + "solo entre bodegas")
+// admin-panel.js (bloques por mes + filtros + RPCs + passwd local)
 // - Contraseña local: "limsa2026"
 // - Usa anon key (sin Auth)
 // - Acciones por RPC (SECURITY DEFINER):
@@ -19,6 +19,15 @@ const $  = (sel) => document.querySelector(sel);
 const pick = (obj, keys) => { for (const k of keys) if (obj && obj[k] != null && String(obj[k]).trim() !== "") return obj[k]; };
 const escapeHtml = (s) => String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
 
+// Meses en español (capitalizados)
+const MESES_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const monthYearKey = (isoDate) => {
+  const d = new Date(isoDate);
+  const y = d.getFullYear();
+  const m = d.getMonth(); // 0..11
+  return { key: `${y}-${String(m+1).padStart(2,"0")}`, label: `${MESES_ES[m]} ${y}` };
+};
+
 // UI
 const loginScreen = $("#login-screen");
 const adminPanel  = $("#admin-panel");
@@ -29,8 +38,8 @@ const vacList     = $("#vac-list");
 const errorMsg    = $("#login-error");
 const fBodegaSel  = $("#f-bodega");
 const fStatusSel  = $("#f-status");
-const fOverlapsCb = $("#f-overlaps");     // mostrar solo empalmes
-const fCrossOnly  = $("#f-cross-only");   // limitar empalmes a "entre bodegas distintas"
+const fOverlapsCb = $("#f-overlaps");    // mostrar solo empalmes
+const fCrossOnly  = $("#f-cross-only");  // limitar empalmes a "entre bodegas distintas"
 
 // Estado
 let VAC_DATA = [];
@@ -41,9 +50,7 @@ let OVERLAPS_ONLY  = false;     // true -> solo solicitudes con empalme
 let CROSS_ONLY     = false;     // true -> empalme solo si son de distintas bodegas
 let OVERLAP_ID_SET = new Set(); // ids que tienen empalme según flags actuales
 
-// ───────────────────────────────────────────────────────────────────────────────
 // Login local
-// ───────────────────────────────────────────────────────────────────────────────
 loginBtn.addEventListener("click", async () => {
   errorMsg.textContent = "";
   const pass = $("#admin-pass").value.trim();
@@ -76,23 +83,19 @@ if (fStatusSel) {
 if (fOverlapsCb) {
   fOverlapsCb.addEventListener("change", () => {
     OVERLAPS_ONLY = !!fOverlapsCb.checked;
-    // recalcular no es necesario si ya estaba calculado, pero por claridad:
-    computeOverlaps();
     renderList();
   });
 }
 if (fCrossOnly) {
   fCrossOnly.addEventListener("change", () => {
     CROSS_ONLY = !!fCrossOnly.checked;
-    // cambiar este flag SÍ cambia el conjunto de empalmes:
+    // Cambia el conjunto de empalmes: hay que recalcular
     computeOverlaps();
     renderList();
   });
 }
 
-// ───────────────────────────────────────────────────────────────────────────────
 // Carga de datos
-// ───────────────────────────────────────────────────────────────────────────────
 async function loadVacations() {
   vacList.innerHTML = "<p>Cargando...</p>";
 
@@ -115,15 +118,15 @@ async function loadVacations() {
     else if (emps) for (const e of emps) EMP_BY_ID[e.id] = e;
   }
 
-  // 3) Calcula empalmes según flags actuales
+  // 3) Empalmes
   computeOverlaps();
 
-  // 4) Poblar bodega y render
+  // 4) Bodegas + render
   populateBodegaFilter();
   renderList();
 }
 
-// Llena el combo de bodega con valores únicos
+// Llena el combo de bodega
 function populateBodegaFilter() {
   if (!fBodegaSel) return;
   const bodegasSet = new Set();
@@ -141,7 +144,7 @@ function populateBodegaFilter() {
   if (current && !bodegasSet.has(current)) CURRENT_BODEGA = "";
 }
 
-// Calcula empalmes (con flags OVERLAPS_ONLY y CROSS_ONLY influyendo el set)
+// Calcula empalmes según flags (CROSS_ONLY afecta el set)
 function computeOverlaps() {
   OVERLAP_ID_SET = new Set();
   if (!VAC_DATA || VAC_DATA.length < 2) return;
@@ -162,15 +165,13 @@ function computeOverlaps() {
       const a = items[i], b = items[j];
       if (!a.bodega || !b.bodega) continue;
 
-      // Si quieres que cuente empalme solo si hay día en común (incluye bordes): <=
-      // Si prefieres estricto (sin coincidencia solo en borde), usa: startMax < endMin
-      const startMax = (a.s > b.s) ? a.s : b.s;
-      const endMin   = (a.e < b.e) ? a.e : b.e;
-
       // Aplica la restricción "solo entre bodegas distintas" si está activada
       if (CROSS_ONLY && a.bodega === b.bodega) continue;
 
-      if (startMax <= endMin) { // empalman (comparten al menos 1 día)
+      // Empalme si comparten al menos un día (incluye bordes)
+      const startMax = (a.s > b.s) ? a.s : b.s;
+      const endMin   = (a.e < b.e) ? a.e : b.e;
+      if (startMax <= endMin) {
         OVERLAP_ID_SET.add(a.id);
         OVERLAP_ID_SET.add(b.id);
       }
@@ -178,32 +179,54 @@ function computeOverlaps() {
   }
 }
 
+// Render por BLOQUES de mes (Enero 2026, Febrero 2026, …)
 function renderList() {
-  if (!VAC_DATA || VAC_DATA.length === 0) { vacList.innerHTML = "<p>No hay solicitudes registradas.</p>"; return; }
+  if (!VAC_DATA || VAC_DATA.length === 0) {
+    vacList.innerHTML = "<p>No hay solicitudes registradas.</p>";
+    return;
+  }
 
-  const rows = VAC_DATA
-    .filter(v => {
-      // Filtro por bodega
-      if (CURRENT_BODEGA) {
-        const e = EMP_BY_ID[v.employee_id] || {};
-        const bod = pick(e, WH_CANDIDATES) ?? "";
-        if (String(bod) !== CURRENT_BODEGA) return false;
-      }
-      // Filtro por estado
-      if (CURRENT_STATUS) {
-        if ((v.status || "") !== CURRENT_STATUS) return false;
-      }
-      // Filtro por empalmes
-      if (OVERLAPS_ONLY && !OVERLAP_ID_SET.has(v.id)) return false;
-      return true;
-    })
-    .map(v => {
+  // 1) Aplica filtros (bodega/estado/empalmes)
+  let rows = VAC_DATA.filter(v => {
+    if (CURRENT_BODEGA) {
+      const e = EMP_BY_ID[v.employee_id] || {};
+      const bod = pick(e, WH_CANDIDATES) ?? "";
+      if (String(bod) !== CURRENT_BODEGA) return false;
+    }
+    if (CURRENT_STATUS) {
+      if ((v.status || "") !== CURRENT_STATUS) return false;
+    }
+    if (OVERLAPS_ONLY && !OVERLAP_ID_SET.has(v.id)) return false;
+    return true;
+  });
+
+  if (rows.length === 0) {
+    vacList.innerHTML = "<p>Sin resultados para el filtro seleccionado.</p>";
+    return;
+  }
+
+  // 2) Ordena por fecha de inicio
+  rows.sort((a,b) => new Date(a.start_date) - new Date(b.start_date));
+
+  // 3) Agrupa por mes-año del start_date
+  const groups = new Map(); // key -> { label, items: [] }
+  for (const v of rows) {
+    const { key, label } = monthYearKey(v.start_date);
+    if (!groups.has(key)) groups.set(key, { label, items: [] });
+    groups.get(key).items.push(v);
+  }
+
+  // 4) Genera HTML por bloques
+  let html = "";
+  for (const { label, items } of groups.values()) {
+    html += `<h3 style="margin:16px 0 8px 0;">${escapeHtml(label)}:</h3>\n`;
+    for (const v of items) {
       const e = EMP_BY_ID[v.employee_id] || {};
       const nombre = pick(e, NAME_CANDIDATES) ?? `Empleado ${String(v.employee_id).slice(0, 8)}`;
       const bodega = pick(e, WH_CANDIDATES)   ?? "-";
       const cls = (v.status || "").toLowerCase();
       const overlapMark = OVERLAP_ID_SET.has(v.id) ? ` <span class="badge overlap">Empalme</span>` : "";
-      return `
+      html += `
         <div class="vac-item">
           <div>
             <strong>${escapeHtml(nombre)}</strong> (${escapeHtml(String(bodega))})${overlapMark}<br>
@@ -221,9 +244,10 @@ function renderList() {
           </div>
         </div>
       `;
-    });
+    }
+  }
 
-  vacList.innerHTML = rows.length ? rows.join("") : "<p>Sin resultados para el filtro seleccionado.</p>";
+  vacList.innerHTML = html;
 }
 
 // ── Acciones por RPC ───────────────────────────────────────────────────────────
