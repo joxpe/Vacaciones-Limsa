@@ -1,7 +1,7 @@
-// admin-panel.js (filtros: bodega + estado + empalmes; acciones por RPC; passwd local)
+// admin-panel.js (filtros: bodega + estado + empalmes + "solo entre bodegas")
 // - Contraseña local: "limsa2026"
 // - Usa anon key (sin Auth)
-// - RPCs requeridos (SECURITY DEFINER):
+// - Acciones por RPC (SECURITY DEFINER):
 //   vacation_requests_delete(req_id uuid, emp_id uuid) -> boolean
 //   vacation_requests_approve(req_id uuid) -> boolean
 //   vacation_requests_reject(req_id uuid) -> boolean
@@ -29,15 +29,17 @@ const vacList     = $("#vac-list");
 const errorMsg    = $("#login-error");
 const fBodegaSel  = $("#f-bodega");
 const fStatusSel  = $("#f-status");
-const fOverlapsCb = $("#f-overlaps");
+const fOverlapsCb = $("#f-overlaps");     // mostrar solo empalmes
+const fCrossOnly  = $("#f-cross-only");   // limitar empalmes a "entre bodegas distintas"
 
 // Estado
 let VAC_DATA = [];
 let EMP_BY_ID = {};
-let CURRENT_BODEGA = "";         // "", o una bodega exacta
-let CURRENT_STATUS = "";         // "", "Aprobado", "Rechazado"
-let OVERLAPS_ONLY  = false;      // true -> solo solicitudes con empalme entre bodegas
-let OVERLAP_ID_SET = new Set();  // ids de solicitudes que empalman con otra bodega
+let CURRENT_BODEGA = "";        // "", o una bodega exacta
+let CURRENT_STATUS = "";        // "", "Aprobado", "Rechazado"
+let OVERLAPS_ONLY  = false;     // true -> solo solicitudes con empalme
+let CROSS_ONLY     = false;     // true -> empalme solo si son de distintas bodegas
+let OVERLAP_ID_SET = new Set(); // ids que tienen empalme según flags actuales
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Login local
@@ -74,6 +76,16 @@ if (fStatusSel) {
 if (fOverlapsCb) {
   fOverlapsCb.addEventListener("change", () => {
     OVERLAPS_ONLY = !!fOverlapsCb.checked;
+    // recalcular no es necesario si ya estaba calculado, pero por claridad:
+    computeOverlaps();
+    renderList();
+  });
+}
+if (fCrossOnly) {
+  fCrossOnly.addEventListener("change", () => {
+    CROSS_ONLY = !!fCrossOnly.checked;
+    // cambiar este flag SÍ cambia el conjunto de empalmes:
+    computeOverlaps();
     renderList();
   });
 }
@@ -103,10 +115,10 @@ async function loadVacations() {
     else if (emps) for (const e of emps) EMP_BY_ID[e.id] = e;
   }
 
-  // 3) Calcula empalmes entre bodegas
-  computeCrossWarehouseOverlaps();
+  // 3) Calcula empalmes según flags actuales
+  computeOverlaps();
 
-  // 4) Poblar combo de Bodega y render
+  // 4) Poblar bodega y render
   populateBodegaFilter();
   renderList();
 }
@@ -129,33 +141,36 @@ function populateBodegaFilter() {
   if (current && !bodegasSet.has(current)) CURRENT_BODEGA = "";
 }
 
-// Calcula solicitudes con empalme de fechas contra otra bodega
-function computeCrossWarehouseOverlaps() {
+// Calcula empalmes (con flags OVERLAPS_ONLY y CROSS_ONLY influyendo el set)
+function computeOverlaps() {
   OVERLAP_ID_SET = new Set();
   if (!VAC_DATA || VAC_DATA.length < 2) return;
 
-  // Prepara arreglo con info necesaria
   const items = VAC_DATA.map(v => {
     const e = EMP_BY_ID[v.employee_id] || {};
     const bodega = pick(e, WH_CANDIDATES) ?? "";
     return {
       id: v.id,
       bodega: String(bodega),
-      s: new Date(v.start_date), // inicio
-      e: new Date(v.end_date)    // fin
+      s: new Date(v.start_date),
+      e: new Date(v.end_date)
     };
   });
 
-  // Revisa empalmes O(n^2) — suficiente para tamaños normales
   for (let i = 0; i < items.length; i++) {
     for (let j = i + 1; j < items.length; j++) {
       const a = items[i], b = items[j];
       if (!a.bodega || !b.bodega) continue;
-      if (a.bodega === b.bodega) continue; // buscamos empalme ENTRE bodegas
-      // Empalme de intervalos si max(inicios) <= min(fines)
+
+      // Si quieres que cuente empalme solo si hay día en común (incluye bordes): <=
+      // Si prefieres estricto (sin coincidencia solo en borde), usa: startMax < endMin
       const startMax = (a.s > b.s) ? a.s : b.s;
       const endMin   = (a.e < b.e) ? a.e : b.e;
-      if (startMax <= endMin) {
+
+      // Aplica la restricción "solo entre bodegas distintas" si está activada
+      if (CROSS_ONLY && a.bodega === b.bodega) continue;
+
+      if (startMax <= endMin) { // empalman (comparten al menos 1 día)
         OVERLAP_ID_SET.add(a.id);
         OVERLAP_ID_SET.add(b.id);
       }
@@ -178,7 +193,7 @@ function renderList() {
       if (CURRENT_STATUS) {
         if ((v.status || "") !== CURRENT_STATUS) return false;
       }
-      // Filtro por empalme entre bodegas
+      // Filtro por empalmes
       if (OVERLAPS_ONLY && !OVERLAP_ID_SET.has(v.id)) return false;
       return true;
     })
