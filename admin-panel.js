@@ -46,6 +46,14 @@ const errorMsg    = $("#login-error");
   if (session) {
     loginScreen.classList.add("hidden");
     adminPanel.classList.remove("hidden");
+
+// DEBUG: ver sesión y UID
+(async () => {
+  const { data: { session }, error } = await supabase.auth.getSession();
+  console.log("SESSION:", session?.user?.id, error || "");
+})();
+
+    
     loadVacations();
   }
 })();
