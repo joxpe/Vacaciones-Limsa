@@ -55,48 +55,6 @@ function norm(s){
     .trim();
 }
 
-// ==== Cálculo de días de vacaciones (LFT 2023) ====
-function yearsCompleted(entryISO, onISO) {
-  if (!entryISO || !onISO) return 0;
-  const a = new Date(entryISO);
-  const b = new Date(onISO);
-  if (isNaN(a) || isNaN(b)) return 0;
-  let y = b.getFullYear() - a.getFullYear();
-  const beforeAnniv = (b.getMonth() < a.getMonth()) ||
-                      (b.getMonth() === a.getMonth() && b.getDate() < a.getDate());
-  if (beforeAnniv) y--;
-  return Math.max(0, y);
-}
-
-function vacDaysMX(entryISO, onISO) {
-  const y = yearsCompleted(entryISO, onISO);
-  if (y <= 0) return 12; // si manejas proporcional distinto, ajusta aquí
-  if (y === 1) return 12;
-  if (y === 2) return 14;
-  if (y === 3) return 16;
-  if (y === 4) return 18;
-  if (y === 5) return 20;
-  // del 6º en adelante: 22 y +2 cada 5 años (6–10, 11–15, ...)
-  return 22 + 2 * Math.floor((y - 6) / 5);
-}
-
-// ==== DÍAS HÁBILES inclusivos (L-V) ====
-// Días hábiles inclusivos (L–S). Excluye DOMINGO. (Alineado con vac_validate_request)
-function bizDaysInclusive(aISO, bISO) {
-  if (!aISO || !bISO) return 0;
-  let a = new Date(aISO + 'T00:00:00Z');
-  let b = new Date(bISO + 'T00:00:00Z');
-  if (isNaN(a) || isNaN(b)) return 0;
-  if (a > b) [a, b] = [b, a];
-
-  let days = 0;
-  for (let d = new Date(a); d <= b; d.setUTCDate(d.getUTCDate() + 1)) {
-    const dow = d.getUTCDay(); // 0=Dom, 6=Sáb
-    if (dow !== 0) days++;     // ← ahora cuenta SÁBADO como hábil
-  }
-  return days;
-}
-
 // ==== Render helpers ====
 function renderEmployees(list){
   if(!list || list.length === 0){
@@ -135,6 +93,7 @@ function applyFilter(){
 
 // ==== Carga de empleados (RPC v2) ====
 async function loadEmployees(){
+  // 👇 Cambiamos a employees_public_v2 (trae bodega, departamento, localizacion)
   const rpc = await supabase.rpc('employees_public_v2');
 
   if (rpc.error || !Array.isArray(rpc.data)) {
@@ -176,41 +135,16 @@ async function loadEmployeeInfo(empId){
   $bod.textContent      = info?.bodega ?? '-';
   $ingreso.textContent  = fmt(info?.fecha_ingreso);
 
-  // === Fecha de referencia para cupo ===
-  const refDate =
-    ($start.value && /^\d{4}-\d{2}-\d{2}$/.test($start.value))
-      ? $start.value
-      : '2026-01-10';
-
-  // Cupo por LFT a esa referencia
-  const diasLFT = vacDaysMX(info?.fecha_ingreso, refDate);
-
-  // Cupo visible = respetar backend si es >=, si no, usar el cálculo correcto
   const cupoVis = (typeof summary?.cupo_visible === 'number')
-    ? Math.max(summary.cupo_visible, diasLFT)
-    : (info?.cupo_2026 ?? summary?.cupo_2026 ?? diasLFT);
-
+    ? summary.cupo_visible
+    : (info?.cupo_2026 ?? summary?.cupo_2026 ?? 0);
   $cupo.textContent  = cupoVis;
+  $usado.textContent = (summary?.usado_2026 ?? 0);
 
-  // ----- USADO y RESTANTE (con parche robusto) -----
-  const n = (x) => (typeof x === 'number' ? x : Number(x) || 0);
-
-  const usado = n(summary?.usado_2026);
-  $usado.textContent = usado;
-
-  // Base de restante: máximo entre backend y (cupo - usado)
-  let restanteBase = Math.max(
-    n(summary?.restante_visible),
-    Math.max(cupoVis - usado, 0)
-  );
-
-  // Descuento tentativo del rango elegido en HÁBILES (L-V)
-  if ($start.value && $end.value && $start.value <= $end.value) {
-    const solicitadosHabiles = bizDaysInclusive($start.value, $end.value);
-    restanteBase = Math.max(restanteBase - solicitadosHabiles, 0);
-  }
-
-  $restante.textContent = restanteBase;
+  const restVis = (typeof summary?.restante_visible === 'number')
+    ? summary.restante_visible
+    : (summary?.restante_2026 ?? 0);
+  $restante.textContent = restVis;
 
   showMsg('', true);
   $empInfo.hidden = false;
@@ -294,23 +228,6 @@ async function submitRequest(){
   if(!s || !t) return showMsg('Completa las fechas.');
   if(s > t) return showMsg('La fecha de inicio no puede ser posterior al fin.');
 
-  // Validación local en HÁBILES: permitir IGUALDAD
-  const solicitadosHabiles = bizDaysInclusive(s, t);
-
-  // Reconstruir “restante base” SIN el descuento tentativo:
-  // Lo que ves en pantalla ya trae el descuento del rango actual, así que:
-  // base ≈ restanteMostrado + solicitadosHabiles, y lo comparamos contra solicitadosHabiles
-  const cupoVis = Number($cupo.textContent) || 0;
-  const usado   = Number($usado.textContent) || 0;
-  const restTxt = Number($restante.textContent);
-  const baseEstimada = (isNaN(restTxt) ? 0 : restTxt) + solicitadosHabiles;
-  const restanteBaseCalc = Math.max(baseEstimada, Math.max(cupoVis - usado, 0));
-
-  if (solicitadosHabiles > restanteBaseCalc) {
-    showMsg(`No puedes solicitar ${solicitadosHabiles} días hábiles; solo te quedan ${restanteBaseCalc}.`);
-    return;
-  }
-
   $submit.disabled = true;
 
   const ins = await supabase.rpc('vacation_requests_create', { emp_id: empId, s, e: t });
@@ -355,14 +272,6 @@ $wh.addEventListener('change', () => {
   $start.value = '';
   $end.value = '';
   applyFilter();
-});
-
-// Recalcular cupo/restante al cambiar las fechas
-$start.addEventListener('change', () => {
-  if (CURRENT_EMP) loadEmployeeInfo(CURRENT_EMP);
-});
-$end.addEventListener('change', () => {
-  if (CURRENT_EMP) loadEmployeeInfo(CURRENT_EMP);
 });
 
 // Cambio de colaborador
