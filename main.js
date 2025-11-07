@@ -160,25 +160,51 @@ async function loadEmployeeInfo(empId){
   $bod.textContent      = info?.bodega ?? '-';
   $ingreso.textContent  = fmt(info?.fecha_ingreso);
 
-  // === Cálculo correcto del cupo en función de la fecha de inicio (o aniversario 2026) ===
+  // === Fecha de referencia para cupo ===
   const refDate =
     ($start.value && /^\d{4}-\d{2}-\d{2}$/.test($start.value))
       ? $start.value
       : '2026-01-10';
 
+  // Cupo por LFT a esa referencia
   const diasLFT = vacDaysMX(info?.fecha_ingreso, refDate);
 
+  // Cupo visible = respetar backend si es >=, si no, usar el cálculo correcto
   const cupoVis = (typeof summary?.cupo_visible === 'number')
     ? Math.max(summary.cupo_visible, diasLFT)
     : (info?.cupo_2026 ?? summary?.cupo_2026 ?? diasLFT);
 
   $cupo.textContent  = cupoVis;
-  $usado.textContent = (summary?.usado_2026 ?? 0);
 
-  const restVis = (typeof summary?.restante_visible === 'number')
-    ? Math.max(summary.restante_visible, 0)
-    : Math.max(cupoVis - (summary?.usado_2026 ?? 0), 0);
-  $restante.textContent = restVis;
+  // ----- USADO y RESTANTE (con parche robusto) -----
+  const n = (x) => (typeof x === 'number' ? x : Number(x) || 0);
+
+  const usado = n(summary?.usado_2026);
+  $usado.textContent = usado;
+
+  // Base de restante: máximo entre backend y (cupo - usado)
+  let restanteBase = Math.max(
+    n(summary?.restante_visible),
+    Math.max(cupoVis - usado, 0)
+  );
+
+  // Días corridos inclusivos del rango seleccionado (solo visual)
+  function diffDaysInclusive(a, b) {
+    if (!a || !b) return 0;
+    const A = new Date(a + 'T00:00:00Z');
+    const B = new Date(b + 'T00:00:00Z');
+    if (isNaN(A) || isNaN(B)) return 0;
+    const ms = (B - A);
+    return Math.max(Math.floor(ms / 86400000) + 1, 0);
+  }
+
+  // Descuento tentativo del rango elegido (si es válido)
+  if ($start.value && $end.value && $start.value <= $end.value) {
+    const solicitados = diffDaysInclusive($start.value, $end.value);
+    restanteBase = Math.max(restanteBase - solicitados, 0);
+  }
+
+  $restante.textContent = restanteBase;
 
   showMsg('', true);
   $empInfo.hidden = false;
@@ -308,11 +334,12 @@ $wh.addEventListener('change', () => {
   applyFilter();
 });
 
-// Recalcular cupo al cambiar la fecha de inicio
+// Recalcular cupo/restante al cambiar las fechas
 $start.addEventListener('change', () => {
-  if (CURRENT_EMP) {
-    loadEmployeeInfo(CURRENT_EMP);
-  }
+  if (CURRENT_EMP) loadEmployeeInfo(CURRENT_EMP);
+});
+$end.addEventListener('change', () => {
+  if (CURRENT_EMP) loadEmployeeInfo(CURRENT_EMP);
 });
 
 // Cambio de colaborador
