@@ -1,7 +1,6 @@
-// admin-panel.js (bloques por mes + filtros + RPCs + passwd local)
-// - Contraseña local: "limsa2026"
-// - Usa anon key (sin Auth)
-// - Acciones por RPC (SECURITY DEFINER):
+// admin-panel.js (bloques por mes + filtros + empalmes por bodega + RPCs + passwd local)
+// Requiere en HTML: inputs/selects con ids: f-bodega, f-status, f-overlaps, f-cross-only
+// RPCs (SECURITY DEFINER):
 //   vacation_requests_delete(req_id uuid, emp_id uuid) -> boolean
 //   vacation_requests_approve(req_id uuid) -> boolean
 //   vacation_requests_reject(req_id uuid) -> boolean
@@ -10,16 +9,12 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
 const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
+// ───────────────────────────────────────────────────────────────────────────────
+// Config
+// ───────────────────────────────────────────────────────────────────────────────
 const LOCAL_PASSWORD = "limsa2026";
-
 const NAME_CANDIDATES = ["nombre", "name", "full_name", "display_name", "empleado"];
 const WH_CANDIDATES   = ["bodega", "warehouse", "almacen", "site", "location", "ubicacion"];
-
-const $  = (sel) => document.querySelector(sel);
-const pick = (obj, keys) => { for (const k of keys) if (obj && obj[k] != null && String(obj[k]).trim() !== "") return obj[k]; };
-const escapeHtml = (s) => String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
-
-// Meses en español (capitalizados)
 const MESES_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const monthYearKey = (isoDate) => {
   const d = new Date(isoDate);
@@ -28,7 +23,27 @@ const monthYearKey = (isoDate) => {
   return { key: `${y}-${String(m+1).padStart(2,"0")}`, label: `${MESES_ES[m]} ${y}` };
 };
 
-// UI
+// ───────────────────────────────────────────────────────────────────────────────
+// Utilidades
+// ───────────────────────────────────────────────────────────────────────────────
+const $ = (sel) => document.querySelector(sel);
+const pick = (obj, keys) => {
+  for (const k of keys) {
+    if (obj && obj[k] != null && String(obj[k]).trim() !== "") return obj[k];
+  }
+  return undefined;
+};
+const escapeHtml = (s) =>
+  String(s)
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
+
+// ───────────────────────────────────────────────────────────────────────────────
+// UI refs
+// ───────────────────────────────────────────────────────────────────────────────
 const loginScreen = $("#login-screen");
 const adminPanel  = $("#admin-panel");
 const loginBtn    = $("#login-btn");
@@ -39,18 +54,22 @@ const errorMsg    = $("#login-error");
 const fBodegaSel  = $("#f-bodega");
 const fStatusSel  = $("#f-status");
 const fOverlapsCb = $("#f-overlaps");    // mostrar solo empalmes
-const fCrossOnly  = $("#f-cross-only");  // limitar empalmes a "entre bodegas distintas"
+const fCrossOnly  = $("#f-cross-only");  // solo entre bodegas distintas
 
+// ───────────────────────────────────────────────────────────────────────────────
 // Estado
+// ───────────────────────────────────────────────────────────────────────────────
 let VAC_DATA = [];
 let EMP_BY_ID = {};
-let CURRENT_BODEGA = "";        // "", o una bodega exacta
-let CURRENT_STATUS = "";        // "", "Aprobado", "Rechazado"
-let OVERLAPS_ONLY  = false;     // true -> solo solicitudes con empalme
-let CROSS_ONLY     = false;     // true -> empalme solo si son de distintas bodegas
-let OVERLAP_ID_SET = new Set(); // ids que tienen empalme según flags actuales
+let CURRENT_BODEGA = "";   // "", o bodega exacta
+let CURRENT_STATUS = "";   // "", "Aprobado", "Rechazado"
+let OVERLAPS_ONLY  = false;   // true: solo solicitudes con empalme
+let CROSS_ONLY     = false;   // true: empalme solo si son de distintas bodegas (solo aplica sin filtro de bodega)
+let OVERLAP_ID_SET = new Set(); // ids que tienen empalme según filtros actuales
 
+// ───────────────────────────────────────────────────────────────────────────────
 // Login local
+// ───────────────────────────────────────────────────────────────────────────────
 loginBtn.addEventListener("click", async () => {
   errorMsg.textContent = "";
   const pass = $("#admin-pass").value.trim();
@@ -71,31 +90,33 @@ refreshBtn.addEventListener("click", loadVacations);
 if (fBodegaSel) {
   fBodegaSel.addEventListener("change", () => {
     CURRENT_BODEGA = fBodegaSel.value || "";
+    computeOverlaps();   // recalcular empalmes dentro del filtro
     renderList();
   });
 }
 if (fStatusSel) {
   fStatusSel.addEventListener("change", () => {
     CURRENT_STATUS = fStatusSel.value || "";
+    computeOverlaps();   // recalcular empalmes dentro del filtro
     renderList();
   });
 }
 if (fOverlapsCb) {
   fOverlapsCb.addEventListener("change", () => {
     OVERLAPS_ONLY = !!fOverlapsCb.checked;
+    // no requiere recomputar; solo cambia la vista
     renderList();
   });
 }
 if (fCrossOnly) {
   fCrossOnly.addEventListener("change", () => {
     CROSS_ONLY = !!fCrossOnly.checked;
-    // Cambia el conjunto de empalmes: hay que recalcular
-    computeOverlaps();
+    computeOverlaps();   // cambia el set de empalmes
     renderList();
   });
 }
 
-// Carga de datos
+// ───────────────────────────────────────────────────────────────────────────────
 async function loadVacations() {
   vacList.innerHTML = "<p>Cargando...</p>";
 
@@ -113,12 +134,15 @@ async function loadVacations() {
   const empIds = [...new Set(VAC_DATA.map(v => v.employee_id).filter(Boolean))];
   EMP_BY_ID = {};
   if (empIds.length > 0) {
-    const { data: emps, error: err2 } = await supabase.from("employees").select("*").in("id", empIds);
+    const { data: emps, error: err2 } = await supabase
+      .from("employees")
+      .select("*")
+      .in("id", empIds);
     if (err2) console.warn("No se pudieron cargar empleados:", err2.message);
     else if (emps) for (const e of emps) EMP_BY_ID[e.id] = e;
   }
 
-  // 3) Empalmes
+  // 3) Empalmes (según filtros bodega/estado y flag cross-only)
   computeOverlaps();
 
   // 4) Bodegas + render
@@ -144,12 +168,28 @@ function populateBodegaFilter() {
   if (current && !bodegasSet.has(current)) CURRENT_BODEGA = "";
 }
 
-// Calcula empalmes según flags (CROSS_ONLY afecta el set)
+// Calcula empalmes usando SOLO el subconjunto que pasa filtros de BODEGA/ESTADO
 function computeOverlaps() {
   OVERLAP_ID_SET = new Set();
   if (!VAC_DATA || VAC_DATA.length < 2) return;
 
-  const items = VAC_DATA.map(v => {
+  // 1) Subconjunto filtrado por bodega/estado actuales
+  const subset = VAC_DATA.filter(v => {
+    if (CURRENT_BODEGA) {
+      const e = EMP_BY_ID[v.employee_id] || {};
+      const bod = pick(e, WH_CANDIDATES) ?? "";
+      if (String(bod) !== CURRENT_BODEGA) return false;
+    }
+    if (CURRENT_STATUS) {
+      if ((v.status || "") !== CURRENT_STATUS) return false;
+    }
+    return true;
+  });
+
+  if (subset.length < 2) return;
+
+  // 2) Preparar ítems del subconjunto
+  const items = subset.map(v => {
     const e = EMP_BY_ID[v.employee_id] || {};
     const bodega = pick(e, WH_CANDIDATES) ?? "";
     return {
@@ -160,15 +200,16 @@ function computeOverlaps() {
     };
   });
 
+  // 3) Flag cross-only: solo aplica si NO hay filtro de bodega
+  const crossOnlyActive = CROSS_ONLY && !CURRENT_BODEGA;
+
+  // 4) Detectar empalmes (incluye bordes: comparte al menos 1 día)
   for (let i = 0; i < items.length; i++) {
     for (let j = i + 1; j < items.length; j++) {
       const a = items[i], b = items[j];
       if (!a.bodega || !b.bodega) continue;
+      if (crossOnlyActive && a.bodega === b.bodega) continue;
 
-      // Aplica la restricción "solo entre bodegas distintas" si está activada
-      if (CROSS_ONLY && a.bodega === b.bodega) continue;
-
-      // Empalme si comparten al menos un día (incluye bordes)
       const startMax = (a.s > b.s) ? a.s : b.s;
       const endMin   = (a.e < b.e) ? a.e : b.e;
       if (startMax <= endMin) {
@@ -179,14 +220,14 @@ function computeOverlaps() {
   }
 }
 
-// Render por BLOQUES de mes (Enero 2026, Febrero 2026, …)
+// Render por bloques de MES
 function renderList() {
   if (!VAC_DATA || VAC_DATA.length === 0) {
     vacList.innerHTML = "<p>No hay solicitudes registradas.</p>";
     return;
   }
 
-  // 1) Aplica filtros (bodega/estado/empalmes)
+  // 1) Filtros (bodega/estado/empalmes)
   let rows = VAC_DATA.filter(v => {
     if (CURRENT_BODEGA) {
       const e = EMP_BY_ID[v.employee_id] || {};
@@ -205,18 +246,18 @@ function renderList() {
     return;
   }
 
-  // 2) Ordena por fecha de inicio
+  // 2) Ordenar por start_date
   rows.sort((a,b) => new Date(a.start_date) - new Date(b.start_date));
 
-  // 3) Agrupa por mes-año del start_date
-  const groups = new Map(); // key -> { label, items: [] }
+  // 3) Agrupar por mes-año del start_date
+  const groups = new Map();
   for (const v of rows) {
     const { key, label } = monthYearKey(v.start_date);
     if (!groups.has(key)) groups.set(key, { label, items: [] });
     groups.get(key).items.push(v);
   }
 
-  // 4) Genera HTML por bloques
+  // 4) Render
   let html = "";
   for (const { label, items } of groups.values()) {
     html += `<h3 style="margin:16px 0 8px 0;">${escapeHtml(label)}:</h3>\n`;
@@ -239,7 +280,7 @@ function renderList() {
                 ? `<button onclick="authorize('${v.id}')">✅ Autorizar</button>`
                 : `<button onclick="reject('${v.id}')">❌ Rechazar</button>`
             }
-            <button onclick="editDate('${v.id}', '${v.start_date}', '${v.end_date}')">🗓 Editar</button>
+            <button onclick="editDate('${v.id}', '${v.end_date}', '${v.end_date}')">🗓 Editar</button>
             <button onclick="deleteVac('${v.id}')">🗑</button>
           </div>
         </div>
@@ -250,7 +291,9 @@ function renderList() {
   vacList.innerHTML = html;
 }
 
-// ── Acciones por RPC ───────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
+// Acciones por RPC
+// ───────────────────────────────────────────────────────────────────────────────
 window.authorize = async (id) => {
   if (!confirm("¿Autorizar esta solicitud?")) return;
   const { data, error } = await supabase.rpc("vacation_requests_approve", { req_id: id });
