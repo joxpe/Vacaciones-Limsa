@@ -55,6 +55,31 @@ function norm(s){
     .trim();
 }
 
+// ==== Cálculo de días de vacaciones (LFT 2023) ====
+function yearsCompleted(entryISO, onISO) {
+  if (!entryISO || !onISO) return 0;
+  const a = new Date(entryISO);
+  const b = new Date(onISO);
+  if (isNaN(a) || isNaN(b)) return 0;
+  let y = b.getFullYear() - a.getFullYear();
+  const beforeAnniv = (b.getMonth() < a.getMonth()) ||
+                      (b.getMonth() === a.getMonth() && b.getDate() < a.getDate());
+  if (beforeAnniv) y--;
+  return Math.max(0, y);
+}
+
+function vacDaysMX(entryISO, onISO) {
+  const y = yearsCompleted(entryISO, onISO);
+  if (y <= 0) return 12; // si manejas proporcional distinto, ajusta aquí
+  if (y === 1) return 12;
+  if (y === 2) return 14;
+  if (y === 3) return 16;
+  if (y === 4) return 18;
+  if (y === 5) return 20;
+  // del 6º en adelante: 22 y +2 cada 5 años (6–10, 11–15, ...)
+  return 22 + 2 * Math.floor((y - 6) / 5);
+}
+
 // ==== Render helpers ====
 function renderEmployees(list){
   if(!list || list.length === 0){
@@ -135,15 +160,24 @@ async function loadEmployeeInfo(empId){
   $bod.textContent      = info?.bodega ?? '-';
   $ingreso.textContent  = fmt(info?.fecha_ingreso);
 
+  // === Cálculo correcto del cupo en función de la fecha de inicio (o aniversario 2026) ===
+  const refDate =
+    ($start.value && /^\d{4}-\d{2}-\d{2}$/.test($start.value))
+      ? $start.value
+      : '2026-01-10';
+
+  const diasLFT = vacDaysMX(info?.fecha_ingreso, refDate);
+
   const cupoVis = (typeof summary?.cupo_visible === 'number')
-    ? summary.cupo_visible
-    : (info?.cupo_2026 ?? summary?.cupo_2026 ?? 0);
+    ? Math.max(summary.cupo_visible, diasLFT)
+    : (info?.cupo_2026 ?? summary?.cupo_2026 ?? diasLFT);
+
   $cupo.textContent  = cupoVis;
   $usado.textContent = (summary?.usado_2026 ?? 0);
 
   const restVis = (typeof summary?.restante_visible === 'number')
-    ? summary.restante_visible
-    : (summary?.restante_2026 ?? 0);
+    ? Math.max(summary.restante_visible, 0)
+    : Math.max(cupoVis - (summary?.usado_2026 ?? 0), 0);
   $restante.textContent = restVis;
 
   showMsg('', true);
@@ -272,6 +306,13 @@ $wh.addEventListener('change', () => {
   $start.value = '';
   $end.value = '';
   applyFilter();
+});
+
+// Recalcular cupo al cambiar la fecha de inicio
+$start.addEventListener('change', () => {
+  if (CURRENT_EMP) {
+    loadEmployeeInfo(CURRENT_EMP);
+  }
 });
 
 // Cambio de colaborador
