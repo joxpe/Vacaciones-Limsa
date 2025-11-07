@@ -81,6 +81,7 @@ function vacDaysMX(entryISO, onISO) {
 }
 
 // ==== DÍAS HÁBILES inclusivos (L-V) ====
+// Días hábiles inclusivos (L–S). Excluye DOMINGO. (Alineado con vac_validate_request)
 function bizDaysInclusive(aISO, bISO) {
   if (!aISO || !bISO) return 0;
   let a = new Date(aISO + 'T00:00:00Z');
@@ -91,7 +92,7 @@ function bizDaysInclusive(aISO, bISO) {
   let days = 0;
   for (let d = new Date(a); d <= b; d.setUTCDate(d.getUTCDate() + 1)) {
     const dow = d.getUTCDay(); // 0=Dom, 6=Sáb
-    if (dow !== 0 && dow !== 6) days++;
+    if (dow !== 0) days++;     // ← ahora cuenta SÁBADO como hábil
   }
   return days;
 }
