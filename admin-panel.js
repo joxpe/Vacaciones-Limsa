@@ -280,7 +280,7 @@ function renderList() {
                 ? `<button onclick="authorize('${v.id}')">✅ Autorizar</button>`
                 : `<button onclick="reject('${v.id}')">❌ Rechazar</button>`
             }
-            <button onclick="editDate('${v.id}', '${v.end_date}', '${v.end_date}')">🗓 Editar</button>
+            <button onclick="editDate('${v.id}', '${v.start_date}', '${v.end_date}')">🗓 Editar</button>
             <button onclick="deleteVac('${v.id}')">🗑</button>
           </div>
         </div>
