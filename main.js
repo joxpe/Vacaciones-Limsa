@@ -18,10 +18,12 @@ const $loc      = document.getElementById('v-localizacion');
 const $dep      = document.getElementById('v-departamento');
 const $bod      = document.getElementById('v-bodega');
 const $ingreso  = document.getElementById('v-ingreso');
-const $antig    = document.getElementById('v-antig');
 const $cupo     = document.getElementById('v-cupo');
 const $usado    = document.getElementById('v-usado');
 const $restante = document.getElementById('v-restante');
+
+// 👇 NUEVO: span para “(X años)”
+const $antig    = document.getElementById('v-antig');
 
 let EMPLOYEES = [];     // cache de empleados [{id, nombre, bodega, ...}]
 let CURRENT_EMP = null; // empleado vigente (para bloquear renders desfasados)
@@ -54,6 +56,24 @@ function norm(s){
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim();
+}
+// 👇 NUEVO: años completos entre dos fechas (ajusta por aniversario)
+function yearsBetween(fromISO, toDate = new Date()){
+  if(!fromISO) return 0;
+  const s = String(fromISO);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const start = m ? new Date(Date.UTC(+m[1], +m[2]-1, +m[3])) : new Date(s);
+  if (isNaN(start)) return 0;
+
+  let years = toDate.getUTCFullYear() - start.getUTCFullYear();
+  const annMonth = start.getUTCMonth();    // 0-11
+  const annDay   = start.getUTCDate();     // 1-31
+  const nowMonth = toDate.getUTCMonth();
+  const nowDay   = toDate.getUTCDate();
+  if (nowMonth < annMonth || (nowMonth === annMonth && nowDay < annDay)) {
+    years -= 1;
+  }
+  return Math.max(0, years);
 }
 
 // ==== Render helpers ====
@@ -94,7 +114,7 @@ function applyFilter(){
 
 // ==== Carga de empleados (RPC v2) ====
 async function loadEmployees(){
-  // 👇 Cambiamos a employees_public_v2 (trae bodega, departamento, localizacion)
+  // 👇 usamos employees_public_v2 (trae bodega, departamento, localizacion)
   const rpc = await supabase.rpc('employees_public_v2');
 
   if (rpc.error || !Array.isArray(rpc.data)) {
@@ -135,6 +155,12 @@ async function loadEmployeeInfo(empId){
   $dep.textContent      = info?.departamento ?? '-';
   $bod.textContent      = info?.bodega ?? '-';
   $ingreso.textContent  = fmt(info?.fecha_ingreso);
+
+  // 👇 NUEVO: calcular y mostrar antigüedad (años)
+  if ($antig) {
+    // Si prefieres al 01-ene-2026, usa: new Date('2026-01-01T00:00:00Z')
+    $antig.textContent = yearsBetween(info?.fecha_ingreso, new Date());
+  }
 
   const cupoVis = (typeof summary?.cupo_visible === 'number')
     ? summary.cupo_visible
