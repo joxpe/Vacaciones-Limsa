@@ -18,6 +18,7 @@ const $loc      = document.getElementById('v-localizacion');
 const $dep      = document.getElementById('v-departamento');
 const $bod      = document.getElementById('v-bodega');
 const $ingreso  = document.getElementById('v-ingreso');
+const $antig    = document.getElementById('v-antig');
 const $cupo     = document.getElementById('v-cupo');
 const $usado    = document.getElementById('v-usado');
 const $restante = document.getElementById('v-restante');
