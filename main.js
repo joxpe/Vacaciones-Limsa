@@ -21,8 +21,7 @@ const $ingreso  = document.getElementById('v-ingreso');
 const $cupo     = document.getElementById('v-cupo');
 const $usado    = document.getElementById('v-usado');
 const $restante = document.getElementById('v-restante');
-
-// 👇 NUEVO: span para “(X años)”
+// 👇 span para “(X.YY años)”
 const $antig    = document.getElementById('v-antig');
 
 let EMPLOYEES = [];     // cache de empleados [{id, nombre, bodega, ...}]
@@ -57,23 +56,25 @@ function norm(s){
     .toLowerCase()
     .trim();
 }
-// 👇 NUEVO: años completos entre dos fechas (ajusta por aniversario)
-function yearsBetween(fromISO, toDate = new Date()){
-  if(!fromISO) return 0;
+// A.MM años (por ejemplo: 1.10 años = 1 año y 10 meses)
+function yearsMonthsLabel(fromISO, toDate = new Date()){
+  if(!fromISO) return '0.00';
   const s = String(fromISO);
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   const start = m ? new Date(Date.UTC(+m[1], +m[2]-1, +m[3])) : new Date(s);
-  if (isNaN(start)) return 0;
+  if (isNaN(start)) return '0.00';
 
-  let years = toDate.getUTCFullYear() - start.getUTCFullYear();
-  const annMonth = start.getUTCMonth();    // 0-11
-  const annDay   = start.getUTCDate();     // 1-31
-  const nowMonth = toDate.getUTCMonth();
-  const nowDay   = toDate.getUTCDate();
-  if (nowMonth < annMonth || (nowMonth === annMonth && nowDay < annDay)) {
-    years -= 1;
-  }
-  return Math.max(0, years);
+  let totalMonths = (toDate.getUTCFullYear() - start.getUTCFullYear()) * 12
+                  + (toDate.getUTCMonth() - start.getUTCMonth());
+  const dayStart = start.getUTCDate();
+  const dayNow   = toDate.getUTCDate();
+  if (dayNow < dayStart) totalMonths -= 1;
+  if (totalMonths < 0) totalMonths = 0;
+
+  const years  = Math.floor(totalMonths / 12);
+  const months = totalMonths % 12;
+
+  return `${years}.${String(months).padStart(2, '0')}`;
 }
 
 // ==== Render helpers ====
@@ -114,7 +115,7 @@ function applyFilter(){
 
 // ==== Carga de empleados (RPC v2) ====
 async function loadEmployees(){
-  // 👇 usamos employees_public_v2 (trae bodega, departamento, localizacion)
+  // usamos employees_public_v2 (trae bodega, departamento, localizacion)
   const rpc = await supabase.rpc('employees_public_v2');
 
   if (rpc.error || !Array.isArray(rpc.data)) {
@@ -156,10 +157,11 @@ async function loadEmployeeInfo(empId){
   $bod.textContent      = info?.bodega ?? '-';
   $ingreso.textContent  = fmt(info?.fecha_ingreso);
 
-  // 👇 NUEVO: calcular y mostrar antigüedad (años)
+  // Antigüedad A.MM (puedes usar fecha de corte 2026-01-01 si lo prefieres)
   if ($antig) {
-    // Si prefieres al 01-ene-2026, usa: new Date('2026-01-01T00:00:00Z')
-    $antig.textContent = yearsBetween(info?.fecha_ingreso, new Date());
+    $antig.textContent = yearsMonthsLabel(info?.fecha_ingreso, new Date());
+    // Ejemplo alterno (al 01-ene-2026):
+    // $antig.textContent = yearsMonthsLabel(info?.fecha_ingreso, new Date('2026-01-01T00:00:00Z'));
   }
 
   const cupoVis = (typeof summary?.cupo_visible === 'number')
