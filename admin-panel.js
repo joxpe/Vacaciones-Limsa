@@ -1,10 +1,11 @@
-// admin-panel.js (bloques por mes + filtros + empalmes por bodega + RPCs + passwd local)
+// admin-panel.js (bloques por mes + filtros + empalmes por bodega + RPCs + passwd local + empleados)
 // Requiere en HTML: inputs/selects con ids: f-bodega, f-status, f-overlaps, f-cross-only
 // RPCs (SECURITY DEFINER):
 //   vacation_requests_delete(req_id uuid, emp_id uuid) -> boolean
 //   vacation_requests_approve(req_id uuid) -> boolean
 //   vacation_requests_reject(req_id uuid) -> boolean
 //   vacation_requests_update_dates(req_id uuid, new_start date, new_end date) -> boolean
+//   vacation_requests_delete_admin(req_id uuid) -> boolean
 
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
 const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
@@ -56,10 +57,26 @@ const fStatusSel  = $("#f-status");
 const fOverlapsCb = $("#f-overlaps");    // mostrar solo empalmes
 const fCrossOnly  = $("#f-cross-only");  // solo entre bodegas distintas
 
+// Empleados
+const empPanel       = $("#emp-panel");
+const empRefreshBtn  = $("#emp-refresh-btn");
+const empExportBtn   = $("#emp-export-btn");
+const empImportInput = $("#emp-import-input");
+const empForm        = $("#emp-form");
+const empMsg         = $("#emp-msg");
+const empList        = $("#emp-list");
+const empNombre      = $("#emp-nombre");
+const empBod         = $("#emp-bodega");
+const empDepto       = $("#emp-depto");
+const empLoc         = $("#emp-localizacion");
+const empRol         = $("#emp-rol");
+const empIng         = $("#emp-ingreso");
+
 // ───────────────────────────────────────────────────────────────────────────────
 // Estado
 // ───────────────────────────────────────────────────────────────────────────────
 let VAC_DATA = [];
+let EMP_DATA = [];
 let EMP_BY_ID = {};
 let CURRENT_BODEGA = "";   // "", o bodega exacta
 let CURRENT_STATUS = "";   // "", "Aprobado", "Rechazado"
@@ -77,6 +94,7 @@ loginBtn.addEventListener("click", async () => {
   loginScreen.classList.add("hidden");
   adminPanel.classList.remove("hidden");
   loadVacations();
+  loadEmployeesAdmin();   // también cargamos empleados
 });
 
 logoutBtn.addEventListener("click", () => {
@@ -84,9 +102,12 @@ logoutBtn.addEventListener("click", () => {
   loginScreen.classList.remove("hidden");
 });
 
-refreshBtn.addEventListener("click", loadVacations);
+refreshBtn.addEventListener("click", () => {
+  loadVacations();
+  loadEmployeesAdmin();
+});
 
-// Filtros
+// Filtros vacaciones
 if (fBodegaSel) {
   fBodegaSel.addEventListener("change", () => {
     CURRENT_BODEGA = fBodegaSel.value || "";
@@ -104,7 +125,6 @@ if (fStatusSel) {
 if (fOverlapsCb) {
   fOverlapsCb.addEventListener("change", () => {
     OVERLAPS_ONLY = !!fOverlapsCb.checked;
-    // no requiere recomputar; solo cambia la vista
     renderList();
   });
 }
@@ -117,6 +137,8 @@ if (fCrossOnly) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
+// Vacaciones: carga principal
+// ───────────────────────────────────────────────────────────────────────────────
 async function loadVacations() {
   vacList.innerHTML = "<p>Cargando...</p>";
 
@@ -126,11 +148,18 @@ async function loadVacations() {
     .select("id, employee_id, start_date, end_date, status, created_at")
     .order("start_date", { ascending: true });
 
-  if (err1) { vacList.innerHTML = `<p style="color:red;">Error al leer solicitudes: ${err1.message}</p>`; console.error(err1); return; }
+  if (err1) {
+    vacList.innerHTML = `<p style="color:red;">Error al leer solicitudes: ${err1.message}</p>`;
+    console.error(err1);
+    return;
+  }
   VAC_DATA = vacs || [];
-  if (VAC_DATA.length === 0) { vacList.innerHTML = "<p>No hay solicitudes registradas.</p>"; return; }
+  if (VAC_DATA.length === 0) {
+    vacList.innerHTML = "<p>No hay solicitudes registradas.</p>";
+    return;
+  }
 
-  // 2) Empleados
+  // 2) Empleados (solo los que tienen solicitudes)
   const empIds = [...new Set(VAC_DATA.map(v => v.employee_id).filter(Boolean))];
   EMP_BY_ID = {};
   if (empIds.length > 0) {
@@ -138,8 +167,11 @@ async function loadVacations() {
       .from("employees")
       .select("*")
       .in("id", empIds);
-    if (err2) console.warn("No se pudieron cargar empleados:", err2.message);
-    else if (emps) for (const e of emps) EMP_BY_ID[e.id] = e;
+    if (err2) {
+      console.warn("No se pudieron cargar empleados:", err2.message);
+    } else if (emps) {
+      for (const e of emps) EMP_BY_ID[e.id] = e;
+    }
   }
 
   // 3) Empalmes (según filtros bodega/estado y flag cross-only)
@@ -150,7 +182,7 @@ async function loadVacations() {
   renderList();
 }
 
-// Llena el combo de bodega
+// Llena el combo de bodega (según empleados con solicitudes)
 function populateBodegaFilter() {
   if (!fBodegaSel) return;
   const bodegasSet = new Set();
@@ -160,8 +192,8 @@ function populateBodegaFilter() {
   }
   const current = CURRENT_BODEGA;
   const opts = [`<option value="">Todas</option>`];
-  [...bodegasSet].sort((a,b) => a.localeCompare(b, 'es')).forEach(b => {
-    const sel = (b === current) ? ' selected' : '';
+  [...bodegasSet].sort((a,b) => a.localeCompare(b, "es")).forEach(b => {
+    const sel = (b === current) ? " selected" : "";
     opts.push(`<option value="${escapeHtml(b)}"${sel}>${escapeHtml(b)}</option>`);
   });
   fBodegaSel.innerHTML = opts.join("");
@@ -292,19 +324,25 @@ function renderList() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Acciones por RPC
+// Acciones por RPC (vacaciones)
 // ───────────────────────────────────────────────────────────────────────────────
 window.authorize = async (id) => {
   if (!confirm("¿Autorizar esta solicitud?")) return;
   const { data, error } = await supabase.rpc("vacation_requests_approve", { req_id: id });
-  if (error || data !== true) { alert("No se pudo autorizar: " + (error?.message || "RPC devolvió falso")); return; }
+  if (error || data !== true) {
+    alert("No se pudo autorizar: " + (error?.message || "RPC devolvió falso"));
+    return;
+  }
   await loadVacations();
 };
 
 window.reject = async (id) => {
   if (!confirm("¿Rechazar esta solicitud?")) return;
   const { data, error } = await supabase.rpc("vacation_requests_reject", { req_id: id });
-  if (error || data !== true) { alert("No se pudo rechazar: " + (error?.message || "RPC devolvió falso")); return; }
+  if (error || data !== true) {
+    alert("No se pudo rechazar: " + (error?.message || "RPC devolvió falso"));
+    return;
+  }
   await loadVacations();
 };
 
@@ -315,7 +353,10 @@ window.editDate = async (id, start, end) => {
   const { data, error } = await supabase.rpc("vacation_requests_update_dates", {
     req_id: id, new_start: newStart, new_end: newEnd
   });
-  if (error || data !== true) { alert("No se pudo editar: " + (error?.message || "RPC devolvió falso")); return; }
+  if (error || data !== true) {
+    alert("No se pudo editar: " + (error?.message || "RPC devolvió falso"));
+    return;
+  }
   await loadVacations();
 };
 
@@ -323,11 +364,265 @@ window.deleteVac = async (id) => {
   if (!confirm("¿Eliminar esta solicitud?")) return;
   const row = (VAC_DATA || []).find(v => v.id === id);
   const empId = row?.employee_id;
-  if (!empId) { alert("No se pudo identificar al empleado de la solicitud."); return; }
-const { data, error } = await supabase.rpc("vacation_requests_delete_admin", {
-  req_id: id,
-});
+  if (!empId) {
+    alert("No se pudo identificar al empleado de la solicitud.");
+    return;
+  }
+  const { data, error } = await supabase.rpc("vacation_requests_delete_admin", {
+    req_id: id
+  });
 
-  if (error || data !== true) { alert("No se pudo eliminar: " + (error?.message || "RPC devolvió falso")); return; }
+  if (error || data !== true) {
+    alert("No se pudo eliminar: " + (error?.message || "RPC devolvió falso"));
+    return;
+  }
   await loadVacations();
 };
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Empleados: carga, alta, import/export CSV
+// ───────────────────────────────────────────────────────────────────────────────
+function showEmpMsg(text, ok = false) {
+  if (!empMsg) return;
+  empMsg.textContent = text || "";
+  empMsg.className = "msg " + (ok ? "ok" : "err");
+}
+
+// Lee empleados desde la tabla employees
+async function loadEmployeesAdmin() {
+  if (!empList) return;
+  empList.innerHTML = "<p>Cargando empleados…</p>";
+  showEmpMsg("");
+
+  const { data, error } = await supabase
+    .from("employees")
+    .select("id, nombre, bodega, departamento, localizacion, rol, fecha_ingreso")
+    .order("nombre", { ascending: true });
+
+  if (error) {
+    console.error("Error al leer empleados:", error);
+    empList.innerHTML = "<p style='color:red;'>Error al leer empleados.</p>";
+    showEmpMsg("Error al leer empleados: " + (error.message || ""), false);
+    return;
+  }
+
+  EMP_DATA = data || [];
+  renderEmployeesAdmin();
+}
+
+function renderEmployeesAdmin() {
+  if (!empList) return;
+  if (!EMP_DATA || EMP_DATA.length === 0) {
+    empList.innerHTML = "<p>No hay empleados registrados.</p>";
+    return;
+  }
+
+  const rows = EMP_DATA.map(e => {
+    const fi = e.fecha_ingreso ? String(e.fecha_ingreso).slice(0, 10) : "";
+    return `
+      <tr>
+        <td>${escapeHtml(e.nombre || "")}</td>
+        <td>${escapeHtml(e.bodega || "")}</td>
+        <td>${escapeHtml(e.departamento || "")}</td>
+        <td>${escapeHtml(e.localizacion || "")}</td>
+        <td>${escapeHtml(e.rol || "")}</td>
+        <td>${escapeHtml(fi)}</td>
+      </tr>
+    `;
+  }).join("");
+
+  empList.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Bodega</th>
+          <th>Departamento</th>
+          <th>Localización</th>
+          <th>Rol</th>
+          <th>Ingreso</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows}
+      </tbody>
+    </table>
+  `;
+}
+
+// Alta de empleado desde el formulario
+if (empForm) {
+  empForm.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    showEmpMsg("");
+    const nombre = (empNombre?.value || "").trim();
+    const bodega = (empBod?.value || "").trim();
+    const depto  = (empDepto?.value || "").trim();
+    const loc    = (empLoc?.value || "").trim();
+    const rol    = (empRol?.value || "").trim().toLowerCase();
+    const ing    = (empIng?.value || "").trim(); // YYYY-MM-DD
+
+    if (!nombre || !ing) {
+      showEmpMsg("Nombre y fecha de ingreso son obligatorios.", false);
+      return;
+    }
+
+    const { error } = await supabase
+      .from("employees")
+      .insert({
+        nombre,
+        bodega: bodega || null,
+        departamento: depto || null,
+        localizacion: loc || null,
+        rol: rol || null,
+        fecha_ingreso: ing
+      });
+
+    if (error) {
+      console.error("Error al insertar empleado:", error);
+      showEmpMsg("No se pudo dar de alta: " + (error.message || ""), false);
+      return;
+    }
+
+    showEmpMsg("Empleado dado de alta correctamente.", true);
+    if (empNombre) empNombre.value = "";
+    if (empBod)    empBod.value    = "";
+    if (empDepto)  empDepto.value  = "";
+    if (empLoc)    empLoc.value    = "";
+    if (empRol)    empRol.value    = "";
+    if (empIng)    empIng.value    = "";
+
+    await loadEmployeesAdmin();
+  });
+}
+
+// Exportar CSV de empleados
+if (empExportBtn) {
+  empExportBtn.addEventListener("click", () => {
+    if (!EMP_DATA || EMP_DATA.length === 0) {
+      showEmpMsg("No hay empleados para exportar.", false);
+      return;
+    }
+
+    const header = ["id","nombre","bodega","departamento","localizacion","rol","fecha_ingreso"];
+    const lines = [header.join(",")];
+
+    for (const e of EMP_DATA) {
+      const row = [
+        e.id || "",
+        e.nombre || "",
+        e.bodega || "",
+        e.departamento || "",
+        e.localizacion || "",
+        e.rol || "",
+        e.fecha_ingreso ? String(e.fecha_ingreso).slice(0,10) : ""
+      ].map(v =>
+        `"${String(v).replace(/"/g, '""')}"`
+      );
+      lines.push(row.join(","));
+    }
+
+    const csv = lines.join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url;
+    a.download = "empleados.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    showEmpMsg("Archivo CSV generado.", true);
+  });
+}
+
+// Importar CSV de empleados
+if (empImportInput) {
+  empImportInput.addEventListener("change", async (ev) => {
+    const file = ev.target.files?.[0];
+    if (!file) return;
+    showEmpMsg("Leyendo archivo CSV…");
+
+    try {
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l !== "");
+      if (lines.length <= 1) {
+        showEmpMsg("El archivo CSV no tiene registros.", false);
+        return;
+      }
+
+      const header = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g,"").toLowerCase());
+      const idx = (name) => header.indexOf(name);
+
+      const idxId    = idx("id");
+      const idxNom   = idx("nombre");
+      const idxBod   = idx("bodega");
+      const idxDep   = idx("departamento");
+      const idxLoc   = idx("localizacion");
+      const idxRol   = idx("rol");
+      const idxIng   = idx("fecha_ingreso");
+
+      if (idxNom === -1 || idxIng === -1) {
+        showEmpMsg("El CSV debe tener al menos columnas 'nombre' y 'fecha_ingreso'.", false);
+        return;
+      }
+
+      const rowsToInsert = [];
+
+      for (let i = 1; i < lines.length; i++) {
+        const raw = lines[i];
+        if (!raw) continue;
+
+        const cols = raw.split(",").map(c => c.replace(/^"|"$/g,""));
+
+        const nombre = cols[idxNom] || "";
+        const ingreso = cols[idxIng] || "";
+
+        if (!nombre || !ingreso) continue;
+
+        const rec = {
+          nombre: nombre.trim(),
+          fecha_ingreso: ingreso.trim()
+        };
+
+        if (idxBod !== -1) rec.bodega       = (cols[idxBod] || "").trim() || null;
+        if (idxDep !== -1) rec.departamento = (cols[idxDep] || "").trim() || null;
+        if (idxLoc !== -1) rec.localizacion = (cols[idxLoc] || "").trim() || null;
+        if (idxRol !== -1) rec.rol          = (cols[idxRol] || "").trim().toLowerCase() || null;
+        if (idxId  !== -1 && cols[idxId])   rec.id           = cols[idxId].trim();
+
+        rowsToInsert.push(rec);
+      }
+
+      if (rowsToInsert.length === 0) {
+        showEmpMsg("No se encontraron filas válidas en el CSV.", false);
+        return;
+      }
+
+      showEmpMsg(`Importando ${rowsToInsert.length} empleados…`);
+
+      const { error } = await supabase
+        .from("employees")
+        .insert(rowsToInsert);
+
+      if (error) {
+        console.error("Error al importar empleados:", error);
+        showEmpMsg("Error al importar empleados: " + (error.message || ""), false);
+        return;
+      }
+
+      showEmpMsg(`Importación completada (${rowsToInsert.length} empleados).`, true);
+      empImportInput.value = "";
+      await loadEmployeesAdmin();
+    } catch (e) {
+      console.error("Error leyendo CSV:", e);
+      showEmpMsg("No se pudo leer el archivo CSV.", false);
+    }
+  });
+}
+
+// Botón de refresco específico de empleados
+if (empRefreshBtn) {
+  empRefreshBtn.addEventListener("click", loadEmployeesAdmin);
+}
