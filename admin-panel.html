@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Administrador Vacaciones</title>
-  <link rel="stylesheet" href="admin-panel.css?v=1">
+  <link rel="stylesheet" href="admin-panel.css?v=2">
 </head>
 <body>
 
-    <!-- Botón para regresar al inicio -->
+  <!-- Botón para regresar al inicio -->
   <div class="back-link">
     <a href="index.html" class="back-button" title="Regresar a inicio">⬅️ Regresar</a>
   </div>
@@ -27,30 +27,80 @@
     </div>
     <h1>Panel de Vacaciones (Administrador)</h1>
 
-      <!-- filtros -->
-<div class="filters" style="margin:10px 0; display:flex; gap:12px; align-items:center; flex-wrap: wrap;">
-  <label for="f-bodega" style="font-weight:600;">Bodega</label>
-  <select id="f-bodega">
-    <option value="">Todas</option>
-  </select>
+    <!-- filtros -->
+    <div class="filters" style="margin:10px 0; display:flex; gap:12px; align-items:center; flex-wrap: wrap;">
+      <label for="f-bodega" style="font-weight:600;">Bodega</label>
+      <select id="f-bodega">
+        <option value="">Todas</option>
+      </select>
 
-  <label for="f-status" style="font-weight:600;">Estado</label>
-  <select id="f-status">
-    <option value="">Todas</option>
-    <option value="Aprobado">Autorizadas</option>
-    <option value="Rechazado">Rechazadas</option>
-  </select>
+      <label for="f-status" style="font-weight:600;">Estado</label>
+      <select id="f-status">
+        <option value="">Todas</option>
+        <option value="Aprobado">Autorizadas</option>
+        <option value="Rechazado">Rechazadas</option>
+      </select>
 
-<label for="f-overlaps" style="font-weight:600;">Empalmes</label>
-<input type="checkbox" id="f-overlaps" />
+      <label for="f-overlaps" style="font-weight:600;">Empalmes</label>
+      <input type="checkbox" id="f-overlaps" />
 
-<label for="f-cross-only" style="font-weight:600;">Solo entre bodegas distintas</label>
-<input type="checkbox" id="f-cross-only" />
+      <label for="f-cross-only" style="font-weight:600;">Solo entre bodegas distintas</label>
+      <input type="checkbox" id="f-cross-only" />
+    </div>
 
-</div>
-
-    
+    <!-- Lista de solicitudes -->
     <div id="vac-list"></div>
+
+    <!-- Gestión de empleados -->
+    <div id="emp-panel" class="card">
+      <h2>Empleados</h2>
+
+      <div class="emp-toolbar">
+        <button id="emp-refresh-btn" type="button">🔄 Actualizar empleados</button>
+
+        <button id="emp-export-btn" type="button">⬇️ Exportar CSV</button>
+
+        <label class="emp-import">
+          ⬆️ Importar CSV
+          <input type="file" id="emp-import-input" accept=".csv" hidden>
+        </label>
+      </div>
+
+      <form id="emp-form" class="emp-form">
+        <div class="emp-grid">
+          <div>
+            <label for="emp-nombre">Nombre</label>
+            <input type="text" id="emp-nombre" required>
+          </div>
+          <div>
+            <label for="emp-bodega">Bodega</label>
+            <input type="text" id="emp-bodega">
+          </div>
+          <div>
+            <label for="emp-depto">Departamento</label>
+            <input type="text" id="emp-depto">
+          </div>
+          <div>
+            <label for="emp-localizacion">Localización</label>
+            <input type="text" id="emp-localizacion">
+          </div>
+          <div>
+            <label for="emp-rol">Rol</label>
+            <input type="text" id="emp-rol" placeholder="chofer, supervisor, jefe…">
+          </div>
+          <div>
+            <label for="emp-ingreso">Fecha ingreso</label>
+            <input type="date" id="emp-ingreso" required>
+          </div>
+        </div>
+
+        <button type="submit">➕ Dar de alta empleado</button>
+      </form>
+
+      <div id="emp-msg" class="msg"></div>
+
+      <div id="emp-list" class="emp-list"></div>
+    </div>
   </div>
 
   <!-- Supabase -->
@@ -59,6 +109,6 @@
     window.SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiYXNla3Znc2V2dHdqeXB6em56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIwNTg3NjUsImV4cCI6MjA3NzYzNDc2NX0.a38X1iS6xhlcoVlrjQ99BcoiVf9REMuVzYR82wYnWHY";
   </script>
   <script type="module" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm"></script>
-<script type="module" src="admin-panel.js?v=rpc-approve-7"></script>
+  <script type="module" src="admin-panel.js?v=rpc-approve-8-emps"></script>
 </body>
 </html>
