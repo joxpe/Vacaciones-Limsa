@@ -1,11 +1,15 @@
-// admin-panel.js (bloques por mes + filtros + empalmes por bodega + RPCs + passwd local + empleados ordenables)
-// Requiere en HTML: inputs/selects con ids: f-bodega, f-status, f-overlaps, f-cross-only
-// RPCs (SECURITY DEFINER):
-//   vacation_requests_delete(req_id uuid, emp_id uuid) -> boolean
+// admin-panel.js (vacaciones + empleados con orden, alta, importar, editar y borrar)
+// RPCs vacaciones (SECURITY DEFINER):
+//   vacation_requests_delete_admin(req_id uuid) -> boolean
 //   vacation_requests_approve(req_id uuid) -> boolean
 //   vacation_requests_reject(req_id uuid) -> boolean
 //   vacation_requests_update_dates(req_id uuid, new_start date, new_end date) -> boolean
-//   vacation_requests_delete_admin(req_id uuid) -> boolean
+//
+// RPCs empleados (SECURITY DEFINER):
+//   employees_insert_admin(p_nombre text, p_bodega text, p_departamento text, p_localizacion text, p_rol text, p_fecha_ingreso date) -> uuid
+//   employees_import_admin(p_rows jsonb) -> integer
+//   employees_update_admin(p_id uuid, p_nombre text, p_bodega text, p_departamento text, p_localizacion text, p_rol text, p_fecha_ingreso date) -> boolean
+//   employees_delete_admin(p_id uuid) -> boolean
 
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
 const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
@@ -384,7 +388,7 @@ window.deleteVac = async (id) => {
 };
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Empleados: carga, alta, import/export CSV, ordenamiento
+// Empleados: carga, alta, import/export CSV, ordenamiento, editar/borrar
 // ───────────────────────────────────────────────────────────────────────────────
 function showEmpMsg(text, ok = false) {
   if (!empMsg) return;
@@ -422,7 +426,7 @@ function getEmpSortLabel(field, label) {
   return `${escapeHtml(label)} ${arrow}`;
 }
 
-// Lee empleados desde la tabla employees
+// Lee empleados desde la tabla employees (solo lectura, RLS debe permitir)
 async function loadEmployeesAdmin() {
   if (!empList) return;
   empList.innerHTML = "<p>Cargando empleados…</p>";
@@ -489,6 +493,10 @@ function renderEmployeesAdmin() {
         <td>${escapeHtml(e.localizacion || "")}</td>
         <td>${escapeHtml(e.rol || "")}</td>
         <td>${escapeHtml(fi)}</td>
+        <td class="emp-actions">
+          <button type="button" onclick="empEdit('${e.id}')">✏️</button>
+          <button type="button" onclick="empDelete('${e.id}')">🗑</button>
+        </td>
       </tr>
     `;
   }).join("");
@@ -503,6 +511,7 @@ function renderEmployeesAdmin() {
           <th data-sort="localizacion">${getEmpSortLabel("localizacion","Localización")}</th>
           <th data-sort="rol">${getEmpSortLabel("rol","Rol")}</th>
           <th data-sort="fecha_ingreso">${getEmpSortLabel("fecha_ingreso","Ingreso")}</th>
+          <th>Acciones</th>
         </tr>
       </thead>
       <tbody>
@@ -531,7 +540,7 @@ function renderEmployeesAdmin() {
   });
 }
 
-// Alta de empleado desde el formulario
+// Alta de empleado desde el formulario (RPC admin)
 if (empForm) {
   empForm.addEventListener("submit", async (ev) => {
     ev.preventDefault();
@@ -549,12 +558,6 @@ if (empForm) {
       return;
     }
 
-    // ⬇️ ANTES: insert directo a la tabla (bloqueado por RLS)
-    // const { error } = await supabase
-    //   .from("employees")
-    //   .insert({ ... });
-
-    // ⬇️ AHORA: usamos la función SECURITY DEFINER
     const { data, error } = await supabase.rpc("employees_insert_admin", {
       p_nombre:        nombre,
       p_bodega:        bodega || null,
@@ -581,6 +584,77 @@ if (empForm) {
     await loadEmployeesAdmin();
   });
 }
+
+// Editar empleado (usa prompts sencillos)
+window.empEdit = async (id) => {
+  const emp = (EMP_DATA || []).find(e => e.id === id);
+  if (!emp) {
+    alert("No se encontró el empleado.");
+    return;
+  }
+
+  const nombre = prompt("Nombre:", emp.nombre || "");
+  if (nombre === null) return;
+
+  const bodega = prompt("Bodega:", emp.bodega || "");
+  if (bodega === null) return;
+
+  const depto = prompt("Departamento:", emp.departamento || "");
+  if (depto === null) return;
+
+  const loc = prompt("Localización:", emp.localizacion || "");
+  if (loc === null) return;
+
+  const rol = prompt("Rol:", emp.rol || "");
+  if (rol === null) return;
+
+  const fiDefault = emp.fecha_ingreso ? String(emp.fecha_ingreso).slice(0,10) : "";
+  const fi = prompt("Fecha de ingreso (YYYY-MM-DD):", fiDefault);
+  if (fi === null || !fi.trim()) {
+    alert("La fecha de ingreso es obligatoria.");
+    return;
+  }
+
+  const { data, error } = await supabase.rpc("employees_update_admin", {
+    p_id:            id,
+    p_nombre:        nombre.trim(),
+    p_bodega:        bodega.trim() || null,
+    p_departamento:  depto.trim()  || null,
+    p_localizacion:  loc.trim()    || null,
+    p_rol:           rol.trim().toLowerCase() || null,
+    p_fecha_ingreso: fi.trim()
+  });
+
+  if (error || data !== true) {
+    console.error("Error al actualizar empleado:", error);
+    alert("No se pudo actualizar el empleado: " + (error?.message || "RPC devolvió falso"));
+    return;
+  }
+
+  await loadEmployeesAdmin();
+  showEmpMsg("Empleado actualizado correctamente.", true);
+};
+
+// Borrar empleado
+window.empDelete = async (id) => {
+  const emp = (EMP_DATA || []).find(e => e.id === id);
+  const nombre = emp?.nombre || "(sin nombre)";
+
+  if (!confirm(`¿Eliminar al empleado "${nombre}"?`)) return;
+
+  const { data, error } = await supabase.rpc("employees_delete_admin", {
+    p_id: id
+  });
+
+  if (error || data !== true) {
+    console.error("Error al borrar empleado:", error);
+    alert("No se pudo borrar el empleado: " + (error?.message || "RPC devolvió falso"));
+    return;
+  }
+
+  await loadEmployeesAdmin();
+  showEmpMsg("Empleado eliminado correctamente.", true);
+};
 
 // Exportar CSV de empleados
 if (empExportBtn) {
@@ -623,7 +697,7 @@ if (empExportBtn) {
   });
 }
 
-// Importar CSV de empleados
+// Importar CSV de empleados (RPC admin)
 if (empImportInput) {
   empImportInput.addEventListener("change", async (ev) => {
     const file = ev.target.files?.[0];
@@ -688,9 +762,8 @@ if (empImportInput) {
 
       showEmpMsg(`Importando ${rowsToInsert.length} empleados…`);
 
-      // Llamamos a la función admin que inserta en bloque
       const { data, error } = await supabase.rpc("employees_import_admin", {
-        p_rows: rowsToInsert   // JS array -> se envía como jsonb
+        p_rows: rowsToInsert   // JS array -> supabase lo manda como jsonb
       });
 
       if (error) {
