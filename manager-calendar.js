@@ -15,13 +15,33 @@ function firstDayOfMonth(d){ return new Date(d.getFullYear(), d.getMonth(), 1); 
 function lastDayOfMonth(d){ return new Date(d.getFullYear(), d.getMonth()+1, 0); }
 function fmtMonthTitle(d){ return d.toLocaleDateString('es-MX', { month:'long', year:'numeric' }); }
 function dowMonday0(date){ return (date.getDay()+6)%7; } // 0=Lun .. 6=Dom
+
 function ymd(date){ return date.toISOString().slice(0,10); }
 function initials(nombre){
   const p = (nombre||'').split(/\s+/).filter(Boolean);
   return ((p[0]?.[0]||'') + (p[1]?.[0]||'')).toUpperCase();
 }
 
+// Estado actual del filtro/mes
 let CUR = { month: new Date(), bodega: '', depto: '' };
+
+// Feriados 2026 cargados desde Supabase
+let HOLIDAYS_2026 = new Set();
+
+async function loadHolidays(){
+  try {
+    const { data, error } = await supabase.rpc('vac_feriados_2026');
+    if (error) {
+      console.warn('No pude cargar feriados 2026:', error.message);
+      return;
+    }
+    // data viene como filas { d: '2026-01-01', ... }
+    HOLIDAYS_2026 = new Set((data || []).map(r => r.d));
+  } catch (e) {
+    console.warn('Error inesperado cargando feriados 2026:', e);
+  }
+}
+
 
 async function loadFilters(){
   const rpc = await supabase.rpc('employees_public_v2');
