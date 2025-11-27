@@ -79,10 +79,15 @@ for(let d=1; d<=totalDays; d++){
   cell.dataset.date = dateStr;
   cell.innerHTML = `<div class="cal-daynum">${d}</div><div class="cal-badges"></div>`;
 
-  // Si es feriado de 2026, marcar la celda
-  if (HOLIDAYS_2026.has(dateStr)) {
-    cell.classList.add('holiday');
-  }
+// Buen Fin (se trabaja, pero debe marcarse)
+if (dateStr >= "2026-11-13" && dateStr <= "2026-11-16") {
+  cell.classList.add('buenfin');
+}
+// Otros feriados (no laborales)
+else if (HOLIDAYS_2026.has(dateStr)) {
+  cell.classList.add('holiday');
+}
+
 
   $cal.appendChild(cell);
 }
