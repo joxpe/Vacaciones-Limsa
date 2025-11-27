@@ -77,6 +77,11 @@ select, input[type="month"]{ width:100%; padding:10px 12px; border:1px solid #cf
 .badge.pend{ background:#fff3cd; border-color:#ffe49b; }
 .badge.auth{ background:#d1fae5; border-color:#a7f3d0; }
 
+.badge.buenfin{
+  background:#dbeafe;
+  border-color:#bfdbfe;
+  color:#1e3a8a;
+}
 /* Tinte por concurrencia */
 .conc-low{ background: linear-gradient(180deg, rgba(29,78,216,0.05), #fff 60%); }
 .conc-mid{ background: linear-gradient(180deg, rgba(234,179,8,0.15), #fff 60%); }
