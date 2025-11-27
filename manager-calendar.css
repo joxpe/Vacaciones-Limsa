@@ -31,6 +31,26 @@ select, input[type="month"]{ width:100%; padding:10px 12px; border:1px solid #cf
   background: #fff5f5;           /* fondo ligeramente rosado */
   border-color: #fecaca;         /* borde suave rojo */
 }
+/* 🔵 Buen Fin — se trabaja, solo informar */
+.cal-cell.buenfin {
+  background: #eff6ff;          /* azul clarito */
+  border-color: #bfdbfe;
+}
+
+.cal-cell.buenfin::after{
+  content: "Buen Fin";
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  right: 6px;
+  padding: 2px 4px;
+  border-radius: 6px;
+  font-size: 11px;
+  text-align: center;
+  background-color: #2563eb;     /* azul */
+  color: #fff;
+  font-weight: 600;
+}
 
 .cal-cell.holiday::after{
   content: "No se trabaja";
