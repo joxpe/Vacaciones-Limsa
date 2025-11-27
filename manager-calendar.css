@@ -26,6 +26,33 @@ select, input[type="month"]{ width:100%; padding:10px 12px; border:1px solid #cf
 .cal-cell.empty{ background:transparent; border:0; }
 .cal-daynum{ position:absolute; top:6px; right:8px; font-size:12px; color:#666; }
 .cal-badges{ display:flex; flex-wrap:wrap; gap:6px; margin-top:22px; }
+/* Días feriados / no laborables */
+.cal-cell.holiday{
+  background: #fff5f5;           /* fondo ligeramente rosado */
+  border-color: #fecaca;         /* borde suave rojo */
+}
+
+.cal-cell.holiday::after{
+  content: "No se trabaja";
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  right: 6px;
+  padding: 2px 4px;
+  border-radius: 6px;
+  font-size: 11px;
+  text-align: center;
+  background-color: #dc2626;     /* rojo */
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Badge de la leyenda para feriados */
+.badge.holiday{
+  background:#fee2e2;
+  border-color:#fecaca;
+}
+
 .badge.pend, .badge.auth{ font-weight:600; }
 .badge.pend{ background:#fff3cd; border-color:#ffe49b; }
 .badge.auth{ background:#d1fae5; border-color:#a7f3d0; }
