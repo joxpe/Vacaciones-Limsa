@@ -1,4 +1,4 @@
-// admin-panel.js (bloques por mes + filtros + empalmes por bodega + RPCs + passwd local + empleados)
+// admin-panel.js (bloques por mes + filtros + empalmes por bodega + RPCs + passwd local + empleados ordenables)
 // Requiere en HTML: inputs/selects con ids: f-bodega, f-status, f-overlaps, f-cross-only
 // RPCs (SECURITY DEFINER):
 //   vacation_requests_delete(req_id uuid, emp_id uuid) -> boolean
@@ -83,6 +83,10 @@ let CURRENT_STATUS = "";   // "", "Aprobado", "Rechazado"
 let OVERLAPS_ONLY  = false;   // true: solo solicitudes con empalme
 let CROSS_ONLY     = false;   // true: empalme solo si son de distintas bodegas (solo aplica sin filtro de bodega)
 let OVERLAP_ID_SET = new Set(); // ids que tienen empalme según filtros actuales
+
+// Orden empleados
+let EMP_SORT_FIELD = "nombre";  // nombre, bodega, departamento, localizacion, rol, fecha_ingreso
+let EMP_SORT_DIR   = "asc";     // "asc" | "desc"
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Login local
@@ -380,12 +384,42 @@ window.deleteVac = async (id) => {
 };
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Empleados: carga, alta, import/export CSV
+// Empleados: carga, alta, import/export CSV, ordenamiento
 // ───────────────────────────────────────────────────────────────────────────────
 function showEmpMsg(text, ok = false) {
   if (!empMsg) return;
   empMsg.textContent = text || "";
   empMsg.className = "msg " + (ok ? "ok" : "err");
+}
+
+// Helpers orden empleados
+function normalizeText(v) {
+  return (v == null ? "" : String(v)).trim().toLowerCase();
+}
+
+function compareText(a, b) {
+  const aa = normalizeText(a);
+  const bb = normalizeText(b);
+  if (aa < bb) return -1;
+  if (aa > bb) return 1;
+  return 0;
+}
+
+function compareDate(a, b) {
+  if (!a && !b) return 0;
+  if (!a) return -1;
+  if (!b) return 1;
+  const da = new Date(a);
+  const db = new Date(b);
+  if (da < db) return -1;
+  if (da > db) return 1;
+  return 0;
+}
+
+function getEmpSortLabel(field, label) {
+  if (EMP_SORT_FIELD !== field) return escapeHtml(label);
+  const arrow = EMP_SORT_DIR === "asc" ? "▲" : "▼";
+  return `${escapeHtml(label)} ${arrow}`;
 }
 
 // Lee empleados desde la tabla employees
@@ -417,7 +451,35 @@ function renderEmployeesAdmin() {
     return;
   }
 
-  const rows = EMP_DATA.map(e => {
+  // Ordenar según EMP_SORT_FIELD / EMP_SORT_DIR
+  const data = [...EMP_DATA];
+  data.sort((a, b) => {
+    let cmp = 0;
+    switch (EMP_SORT_FIELD) {
+      case "bodega":
+        cmp = compareText(a.bodega, b.bodega);
+        break;
+      case "departamento":
+        cmp = compareText(a.departamento, b.departamento);
+        break;
+      case "localizacion":
+        cmp = compareText(a.localizacion, b.localizacion);
+        break;
+      case "rol":
+        cmp = compareText(a.rol, b.rol);
+        break;
+      case "fecha_ingreso":
+        cmp = compareDate(a.fecha_ingreso, b.fecha_ingreso);
+        break;
+      case "nombre":
+      default:
+        cmp = compareText(a.nombre, b.nombre);
+        break;
+    }
+    return EMP_SORT_DIR === "asc" ? cmp : -cmp;
+  });
+
+  const rows = data.map(e => {
     const fi = e.fecha_ingreso ? String(e.fecha_ingreso).slice(0, 10) : "";
     return `
       <tr>
@@ -435,12 +497,12 @@ function renderEmployeesAdmin() {
     <table>
       <thead>
         <tr>
-          <th>Nombre</th>
-          <th>Bodega</th>
-          <th>Departamento</th>
-          <th>Localización</th>
-          <th>Rol</th>
-          <th>Ingreso</th>
+          <th data-sort="nombre">${getEmpSortLabel("nombre","Nombre")}</th>
+          <th data-sort="bodega">${getEmpSortLabel("bodega","Bodega")}</th>
+          <th data-sort="departamento">${getEmpSortLabel("departamento","Departamento")}</th>
+          <th data-sort="localizacion">${getEmpSortLabel("localizacion","Localización")}</th>
+          <th data-sort="rol">${getEmpSortLabel("rol","Rol")}</th>
+          <th data-sort="fecha_ingreso">${getEmpSortLabel("fecha_ingreso","Ingreso")}</th>
         </tr>
       </thead>
       <tbody>
@@ -448,6 +510,25 @@ function renderEmployeesAdmin() {
       </tbody>
     </table>
   `;
+
+  // Handlers de orden en encabezados
+  const ths = empList.querySelectorAll("th[data-sort]");
+  ths.forEach(th => {
+    th.style.cursor = "pointer";
+    th.addEventListener("click", () => {
+      const field = th.getAttribute("data-sort");
+      if (!field) return;
+      if (EMP_SORT_FIELD === field) {
+        // mismo campo => invierte dirección
+        EMP_SORT_DIR = (EMP_SORT_DIR === "asc" ? "desc" : "asc");
+      } else {
+        // cambia campo => asc por default
+        EMP_SORT_FIELD = field;
+        EMP_SORT_DIR = "asc";
+      }
+      renderEmployeesAdmin();
+    });
+  });
 }
 
 // Alta de empleado desde el formulario
