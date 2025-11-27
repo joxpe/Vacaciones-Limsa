@@ -69,13 +69,25 @@ function buildCalendarGrid(monthDate){
     cell.className = 'cal-cell empty';
     $cal.appendChild(cell);
   }
-  for(let d=1; d<=totalDays; d++){
-    const cell = document.createElement('div');
-    cell.className = 'cal-cell';
-    cell.dataset.date = ymd(new Date(monthDate.getFullYear(), monthDate.getMonth(), d));
-    cell.innerHTML = `<div class="cal-daynum">${d}</div><div class="cal-badges"></div>`;
-    $cal.appendChild(cell);
+for(let d=1; d<=totalDays; d++){
+  const cell = document.createElement('div');
+  cell.className = 'cal-cell';
+
+  const dateObj = new Date(monthDate.getFullYear(), monthDate.getMonth(), d);
+  const dateStr = ymd(dateObj);
+
+  cell.dataset.date = dateStr;
+  cell.innerHTML = `<div class="cal-daynum">${d}</div><div class="cal-badges"></div>`;
+
+  // Si es feriado de 2026, marcar la celda
+  if (HOLIDAYS_2026.has(dateStr)) {
+    cell.classList.add('holiday');
   }
+
+  $cal.appendChild(cell);
+}
+
+  
   for(let i=0; i<padEnd; i++){
     const cell = document.createElement('div');
     cell.className = 'cal-cell empty';
