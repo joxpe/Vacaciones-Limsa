@@ -536,6 +536,7 @@ if (empForm) {
   empForm.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     showEmpMsg("");
+
     const nombre = (empNombre?.value || "").trim();
     const bodega = (empBod?.value || "").trim();
     const depto  = (empDepto?.value || "").trim();
@@ -548,16 +549,20 @@ if (empForm) {
       return;
     }
 
-    const { error } = await supabase
-      .from("employees")
-      .insert({
-        nombre,
-        bodega: bodega || null,
-        departamento: depto || null,
-        localizacion: loc || null,
-        rol: rol || null,
-        fecha_ingreso: ing
-      });
+    // ⬇️ ANTES: insert directo a la tabla (bloqueado por RLS)
+    // const { error } = await supabase
+    //   .from("employees")
+    //   .insert({ ... });
+
+    // ⬇️ AHORA: usamos la función SECURITY DEFINER
+    const { data, error } = await supabase.rpc("employees_insert_admin", {
+      p_nombre:        nombre,
+      p_bodega:        bodega || null,
+      p_departamento:  depto  || null,
+      p_localizacion:  loc    || null,
+      p_rol:           rol    || null,
+      p_fecha_ingreso: ing
+    });
 
     if (error) {
       console.error("Error al insertar empleado:", error);
@@ -683,9 +688,10 @@ if (empImportInput) {
 
       showEmpMsg(`Importando ${rowsToInsert.length} empleados…`);
 
-      const { error } = await supabase
-        .from("employees")
-        .insert(rowsToInsert);
+      // Llamamos a la función admin que inserta en bloque
+      const { data, error } = await supabase.rpc("employees_import_admin", {
+        p_rows: rowsToInsert   // JS array -> se envía como jsonb
+      });
 
       if (error) {
         console.error("Error al importar empleados:", error);
@@ -693,7 +699,8 @@ if (empImportInput) {
         return;
       }
 
-      showEmpMsg(`Importación completada (${rowsToInsert.length} empleados).`, true);
+      const inserted = data ?? rowsToInsert.length;
+      showEmpMsg(`Importación completada (${inserted} empleados).`, true);
       empImportInput.value = "";
       await loadEmployeesAdmin();
     } catch (e) {
