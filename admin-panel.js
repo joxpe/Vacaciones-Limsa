@@ -324,7 +324,10 @@ window.deleteVac = async (id) => {
   const row = (VAC_DATA || []).find(v => v.id === id);
   const empId = row?.employee_id;
   if (!empId) { alert("No se pudo identificar al empleado de la solicitud."); return; }
-  const { data, error } = await supabase.rpc("vacation_requests_delete", { req_id: id, emp_id: empId });
+const { data, error } = await supabase.rpc("vacation_requests_delete_admin", {
+  req_id: id,
+});
+
   if (error || data !== true) { alert("No se pudo eliminar: " + (error?.message || "RPC devolvió falso")); return; }
   await loadVacations();
 };
