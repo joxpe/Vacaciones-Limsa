@@ -166,6 +166,8 @@ $next.addEventListener('click', () => { CUR.month = new Date(CUR.month.getFullYe
 (async function init(){
   CUR.month = new Date();
   await loadFilters();
+  await loadHolidays();         // ⬅️ primero traemos los feriados
   buildCalendarGrid(CUR.month);
   await loadMonth();
 })();
+
