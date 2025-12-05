@@ -42,7 +42,6 @@ async function loadHolidays(){
   }
 }
 
-
 async function loadFilters(){
   const rpc = await supabase.rpc('employees_public_v2');
   if (rpc.error) { showMsg('No pude cargar bodegas/deptos: ' + rpc.error.message, false); return; }
@@ -69,29 +68,28 @@ function buildCalendarGrid(monthDate){
     cell.className = 'cal-cell empty';
     $cal.appendChild(cell);
   }
-for(let d=1; d<=totalDays; d++){
-  const cell = document.createElement('div');
-  cell.className = 'cal-cell';
 
-  const dateObj = new Date(monthDate.getFullYear(), monthDate.getMonth(), d);
-  const dateStr = ymd(dateObj);
+  for(let d=1; d<=totalDays; d++){
+    const cell = document.createElement('div');
+    cell.className = 'cal-cell';
 
-  cell.dataset.date = dateStr;
-  cell.innerHTML = `<div class="cal-daynum">${d}</div><div class="cal-badges"></div>`;
+    const dateObj = new Date(monthDate.getFullYear(), monthDate.getMonth(), d);
+    const dateStr = ymd(dateObj);
 
-// Buen Fin (se trabaja, pero debe marcarse)
-if (dateStr >= "2026-11-13" && dateStr <= "2026-11-16") {
-  cell.classList.add('buenfin');
-}
-// Otros feriados (no laborales)
-else if (HOLIDAYS_2026.has(dateStr)) {
-  cell.classList.add('holiday');
-}
+    cell.dataset.date = dateStr;
+    cell.innerHTML = `<div class="cal-daynum">${d}</div><div class="cal-badges"></div>`;
 
+    // Buen Fin (se trabaja, pero debe marcarse)
+    if (dateStr >= "2026-11-13" && dateStr <= "2026-11-16") {
+      cell.classList.add('buenfin');
+    }
+    // Otros feriados (no laborales)
+    else if (HOLIDAYS_2026.has(dateStr)) {
+      cell.classList.add('holiday');
+    }
 
-  $cal.appendChild(cell);
-}
-
+    $cal.appendChild(cell);
+  }
   
   for(let i=0; i<padEnd; i++){
     const cell = document.createElement('div');
@@ -141,14 +139,21 @@ async function loadMonth(){
     const cell = $cal.querySelector(`.cal-cell[data-date="${day}"]`);
     if(!cell) continue;
 
-    cell.classList.add(levels[day] === 'high' ? 'conc-high'
-                   : levels[day] === 'mid'  ? 'conc-mid'
-                   : 'conc-low');
+    cell.classList.add(
+      levels[day] === 'high' ? 'conc-high'
+    : levels[day] === 'mid'  ? 'conc-mid'
+    : 'conc-low'
+    );
 
     const $badges = cell.querySelector('.cal-badges');
     $badges.innerHTML = mapDay[day].map(r => {
-      const klass = r.status === 'Autorizada' ? 'badge auth' : 'badge pend';
-      const tip   = `${r.nombre} • ${r.bodega ?? ''} • ${r.departamento ?? ''} • ${r.status}`;
+      // 👇 Aquí el cambio importante: usamos 'Aprobado' y 'Pendiente'
+      const klass =
+        r.status === 'Aprobado'  ? 'badge auth' :
+        r.status === 'Pendiente' ? 'badge pend' :
+        'badge other';
+
+      const tip = `${r.nombre} • ${r.bodega ?? ''} • ${r.departamento ?? ''} • ${r.status}`;
       return `<span class="${klass}" title="${tip}">${initials(r.nombre)}</span>`;
     }).join('');
   }
@@ -175,4 +180,3 @@ $next.addEventListener('click', () => { CUR.month = new Date(CUR.month.getFullYe
   buildCalendarGrid(CUR.month);
   await loadMonth();
 })();
-
