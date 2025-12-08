@@ -56,7 +56,10 @@ const logoutBtn   = $("#logout-btn");
 const refreshBtn  = $("#refresh-btn");
 const vacList     = $("#vac-list");
 const errorMsg    = $("#login-error");
+
 const fBodegaSel  = $("#f-bodega");
+const fDeptoSel   = $("#f-depto");   // NUEVO: filtro departamento (vacaciones)
+const fRolSel     = $("#f-rol");     // NUEVO: filtro rol (vacaciones)
 const fStatusSel  = $("#f-status");
 const fOverlapsCb = $("#f-overlaps");    // mostrar solo empalmes
 const fCrossOnly  = $("#f-cross-only");  // solo entre bodegas distintas
@@ -83,6 +86,8 @@ let VAC_DATA = [];
 let EMP_DATA = [];
 let EMP_BY_ID = {};
 let CURRENT_BODEGA = "";   // "", o bodega exacta
+let CURRENT_DEPTO  = "";   // NUEVO: filtro departamento actual
+let CURRENT_ROL    = "";   // NUEVO: filtro rol actual
 let CURRENT_STATUS = "";   // "", "Aprobado", "Rechazado"
 let OVERLAPS_ONLY  = false;   // true: solo solicitudes con empalme
 let CROSS_ONLY     = false;   // true: empalme solo si son de distintas bodegas (solo aplica sin filtro de bodega)
@@ -123,6 +128,25 @@ if (fBodegaSel) {
     renderList();
   });
 }
+
+// NUEVO: cambio de departamento
+if (fDeptoSel) {
+  fDeptoSel.addEventListener("change", () => {
+    CURRENT_DEPTO = fDeptoSel.value || "";
+    computeOverlaps();
+    renderList();
+  });
+}
+
+// NUEVO: cambio de rol
+if (fRolSel) {
+  fRolSel.addEventListener("change", () => {
+    CURRENT_ROL = fRolSel.value || "";
+    computeOverlaps();
+    renderList();
+  });
+}
+
 if (fStatusSel) {
   fStatusSel.addEventListener("change", () => {
     CURRENT_STATUS = fStatusSel.value || "";
@@ -182,43 +206,87 @@ async function loadVacations() {
     }
   }
 
-  // 3) Empalmes (según filtros bodega/estado y flag cross-only)
+  // 3) Empalmes (según filtros bodega/depto/rol/estado y flag cross-only)
   computeOverlaps();
 
-  // 4) Bodegas + render
-  populateBodegaFilter();
+  // 4) Filtros (bodega/depto/rol) + render
+  populateFilters();
   renderList();
 }
 
-// Llena el combo de bodega (según empleados con solicitudes)
-function populateBodegaFilter() {
-  if (!fBodegaSel) return;
+// NUEVO: llena combos de Bodega, Departamento y Rol según empleados con solicitudes
+function populateFilters() {
   const bodegasSet = new Set();
+  const deptosSet  = new Set();
+  const rolesSet   = new Set();
+
   for (const emp of Object.values(EMP_BY_ID)) {
     const bod = pick(emp, WH_CANDIDATES);
     if (bod) bodegasSet.add(String(bod));
+
+    const dep = emp.departamento ? String(emp.departamento).trim() : "";
+    if (dep) deptosSet.add(dep);
+
+    const rol = emp.rol ? String(emp.rol).trim() : "";
+    if (rol) rolesSet.add(rol);
   }
-  const current = CURRENT_BODEGA;
-  const opts = [`<option value="">Todas</option>`];
-  [...bodegasSet].sort((a,b) => a.localeCompare(b, "es")).forEach(b => {
-    const sel = (b === current) ? " selected" : "";
-    opts.push(`<option value="${escapeHtml(b)}"${sel}>${escapeHtml(b)}</option>`);
-  });
-  fBodegaSel.innerHTML = opts.join("");
-  if (current && !bodegasSet.has(current)) CURRENT_BODEGA = "";
+
+  // Bodegas
+  if (fBodegaSel) {
+    const current = CURRENT_BODEGA;
+    const opts = [`<option value="">Todas</option>`];
+    [...bodegasSet].sort((a,b) => a.localeCompare(b, "es")).forEach(b => {
+      const sel = (b === current) ? " selected" : "";
+      opts.push(`<option value="${escapeHtml(b)}"${sel}>${escapeHtml(b)}</option>`);
+    });
+    fBodegaSel.innerHTML = opts.join("");
+    if (current && !bodegasSet.has(current)) CURRENT_BODEGA = "";
+  }
+
+  // Departamento
+  if (fDeptoSel) {
+    const current = CURRENT_DEPTO;
+    const opts = [`<option value="">Todos</option>`];
+    [...deptosSet].sort((a,b) => a.localeCompare(b, "es")).forEach(d => {
+      const sel = (d === current) ? " selected" : "";
+      opts.push(`<option value="${escapeHtml(d)}"${sel}>${escapeHtml(d)}</option>`);
+    });
+    fDeptoSel.innerHTML = opts.join("");
+    if (current && !deptosSet.has(current)) CURRENT_DEPTO = "";
+  }
+
+  // Rol
+  if (fRolSel) {
+    const current = CURRENT_ROL;
+    const opts = [`<option value="">Todos</option>`];
+    [...rolesSet].sort((a,b) => a.localeCompare(b, "es")).forEach(r => {
+      const sel = (r === current) ? " selected" : "";
+      opts.push(`<option value="${escapeHtml(r)}"${sel}>${escapeHtml(r)}</option>`);
+    });
+    fRolSel.innerHTML = opts.join("");
+    if (current && !rolesSet.has(current)) CURRENT_ROL = "";
+  }
 }
 
-// Calcula empalmes usando SOLO el subconjunto que pasa filtros de BODEGA/ESTADO
+// Calcula empalmes usando SOLO el subconjunto que pasa filtros de BODEGA/DEPTO/ROL/ESTADO
 function computeOverlaps() {
   OVERLAP_ID_SET = new Set();
   if (!VAC_DATA || VAC_DATA.length < 2) return;
 
-  // 1) Subconjunto filtrado por bodega/estado actuales
   const subset = VAC_DATA.filter(v => {
+    const e = EMP_BY_ID[v.employee_id] || {};
+
     if (CURRENT_BODEGA) {
-      const e = EMP_BY_ID[v.employee_id] || {};
       const bod = pick(e, WH_CANDIDATES) ?? "";
       if (String(bod) !== CURRENT_BODEGA) return false;
+    }
+    if (CURRENT_DEPTO) {
+      const dep = e.departamento ?? "";
+      if (String(dep) !== CURRENT_DEPTO) return false;
+    }
+    if (CURRENT_ROL) {
+      const rol = e.rol ?? "";
+      if (String(rol) !== CURRENT_ROL) return false;
     }
     if (CURRENT_STATUS) {
       if ((v.status || "") !== CURRENT_STATUS) return false;
@@ -267,12 +335,21 @@ function renderList() {
     return;
   }
 
-  // 1) Filtros (bodega/estado/empalmes)
+  // 1) Filtros (bodega/depto/rol/estado/empalmes)
   let rows = VAC_DATA.filter(v => {
+    const e = EMP_BY_ID[v.employee_id] || {};
+
     if (CURRENT_BODEGA) {
-      const e = EMP_BY_ID[v.employee_id] || {};
       const bod = pick(e, WH_CANDIDATES) ?? "";
       if (String(bod) !== CURRENT_BODEGA) return false;
+    }
+    if (CURRENT_DEPTO) {
+      const dep = e.departamento ?? "";
+      if (String(dep) !== CURRENT_DEPTO) return false;
+    }
+    if (CURRENT_ROL) {
+      const rol = e.rol ?? "";
+      if (String(rol) !== CURRENT_ROL) return false;
     }
     if (CURRENT_STATUS) {
       if ((v.status || "") !== CURRENT_STATUS) return false;
@@ -305,12 +382,18 @@ function renderList() {
       const e = EMP_BY_ID[v.employee_id] || {};
       const nombre = pick(e, NAME_CANDIDATES) ?? `Empleado ${String(v.employee_id).slice(0, 8)}`;
       const bodega = pick(e, WH_CANDIDATES)   ?? "-";
+      const rol    = e.rol ?? "";
+      const depto  = e.departamento ?? "";
       const cls = (v.status || "").toLowerCase();
       const overlapMark = OVERLAP_ID_SET.has(v.id) ? ` <span class="badge overlap">Empalme</span>` : "";
+
       html += `
         <div class="vac-item">
           <div>
-            <strong>${escapeHtml(nombre)}</strong> (${escapeHtml(String(bodega))})${overlapMark}<br>
+            <strong>${escapeHtml(nombre)}</strong>
+            ${rol ? `<span style="color:#555;">(${escapeHtml(rol)})</span>` : ""}
+            (${escapeHtml(String(bodega))})${overlapMark}<br>
+            ${depto ? `Depto: ${escapeHtml(depto)}<br>` : ""}
             ${escapeHtml(v.start_date)} → ${escapeHtml(v.end_date)}<br>
             Estado: <span class="badge ${cls}">${escapeHtml(v.status)}</span>
           </div>
