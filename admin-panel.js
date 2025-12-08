@@ -58,8 +58,8 @@ const vacList     = $("#vac-list");
 const errorMsg    = $("#login-error");
 
 const fBodegaSel  = $("#f-bodega");
-const fDeptoSel   = $("#f-depto");   // NUEVO: filtro departamento (vacaciones)
-const fRolSel     = $("#f-rol");     // NUEVO: filtro rol (vacaciones)
+const fDeptoSel   = $("#f-depto");
+const fRolSel     = $("#f-rol");
 const fStatusSel  = $("#f-status");
 const fOverlapsCb = $("#f-overlaps");    // mostrar solo empalmes
 const fCrossOnly  = $("#f-cross-only");  // solo entre bodegas distintas
@@ -86,11 +86,11 @@ let VAC_DATA = [];
 let EMP_DATA = [];
 let EMP_BY_ID = {};
 let CURRENT_BODEGA = "";   // "", o bodega exacta
-let CURRENT_DEPTO  = "";   // NUEVO: filtro departamento actual
-let CURRENT_ROL    = "";   // NUEVO: filtro rol actual
+let CURRENT_DEPTO  = "";   // "", o departamento exacto
+let CURRENT_ROLES  = [];   // [], o lista de roles seleccionados
 let CURRENT_STATUS = "";   // "", "Aprobado", "Rechazado"
 let OVERLAPS_ONLY  = false;   // true: solo solicitudes con empalme
-let CROSS_ONLY     = false;   // true: empalme solo si son de distintas bodegas (solo aplica sin filtro de bodega)
+let CROSS_ONLY     = false;   // true: empalme solo si son de distintas bodegas (sin filtro de bodega)
 let OVERLAP_ID_SET = new Set(); // ids que tienen empalme según filtros actuales
 
 // Orden empleados
@@ -124,12 +124,12 @@ refreshBtn.addEventListener("click", () => {
 if (fBodegaSel) {
   fBodegaSel.addEventListener("change", () => {
     CURRENT_BODEGA = fBodegaSel.value || "";
-    computeOverlaps();   // recalcular empalmes dentro del filtro
+    computeOverlaps();
     renderList();
   });
 }
 
-// NUEVO: cambio de departamento
+// Filtro departamento
 if (fDeptoSel) {
   fDeptoSel.addEventListener("change", () => {
     CURRENT_DEPTO = fDeptoSel.value || "";
@@ -138,10 +138,13 @@ if (fDeptoSel) {
   });
 }
 
-// NUEVO: cambio de rol
+// Filtro de roles (multiselección)
 if (fRolSel) {
   fRolSel.addEventListener("change", () => {
-    CURRENT_ROL = fRolSel.value || "";
+    const selected = Array.from(fRolSel.selectedOptions || [])
+      .map(opt => opt.value)
+      .filter(Boolean);
+    CURRENT_ROLES = selected;
     computeOverlaps();
     renderList();
   });
@@ -150,7 +153,7 @@ if (fRolSel) {
 if (fStatusSel) {
   fStatusSel.addEventListener("change", () => {
     CURRENT_STATUS = fStatusSel.value || "";
-    computeOverlaps();   // recalcular empalmes dentro del filtro
+    computeOverlaps();
     renderList();
   });
 }
@@ -163,7 +166,7 @@ if (fOverlapsCb) {
 if (fCrossOnly) {
   fCrossOnly.addEventListener("change", () => {
     CROSS_ONLY = !!fCrossOnly.checked;
-    computeOverlaps();   // cambia el set de empalmes
+    computeOverlaps();
     renderList();
   });
 }
@@ -197,7 +200,7 @@ async function loadVacations() {
   if (empIds.length > 0) {
     const { data: emps, error: err2 } = await supabase
       .from("employees")
-      .select("*")
+      .select("id, nombre, bodega, departamento, localizacion, rol, fecha_ingreso")
       .in("id", empIds);
     if (err2) {
       console.warn("No se pudieron cargar empleados:", err2.message);
@@ -206,15 +209,17 @@ async function loadVacations() {
     }
   }
 
-  // 3) Empalmes (según filtros bodega/depto/rol/estado y flag cross-only)
+  // 3) Filtros (bodega/departamento/rol) según empleados con solicitudes
+  populateFilters();
+
+  // 4) Empalmes (según filtros bodega/depto/rol/estado y flag cross-only)
   computeOverlaps();
 
-  // 4) Filtros (bodega/depto/rol) + render
-  populateFilters();
+  // 5) Render
   renderList();
 }
 
-// NUEVO: llena combos de Bodega, Departamento y Rol según empleados con solicitudes
+// Llena combos de bodega, departamento y rol
 function populateFilters() {
   const bodegasSet = new Set();
   const deptosSet  = new Set();
@@ -223,15 +228,11 @@ function populateFilters() {
   for (const emp of Object.values(EMP_BY_ID)) {
     const bod = pick(emp, WH_CANDIDATES);
     if (bod) bodegasSet.add(String(bod));
-
-    const dep = emp.departamento ? String(emp.departamento).trim() : "";
-    if (dep) deptosSet.add(dep);
-
-    const rol = emp.rol ? String(emp.rol).trim() : "";
-    if (rol) rolesSet.add(rol);
+    if (emp.departamento) deptosSet.add(String(emp.departamento).trim());
+    if (emp.rol)          rolesSet.add(String(emp.rol).trim());
   }
 
-  // Bodegas
+  // Bodega
   if (fBodegaSel) {
     const current = CURRENT_BODEGA;
     const opts = [`<option value="">Todas</option>`];
@@ -245,30 +246,34 @@ function populateFilters() {
 
   // Departamento
   if (fDeptoSel) {
-    const current = CURRENT_DEPTO;
+    const currentD = CURRENT_DEPTO;
     const opts = [`<option value="">Todos</option>`];
     [...deptosSet].sort((a,b) => a.localeCompare(b, "es")).forEach(d => {
-      const sel = (d === current) ? " selected" : "";
+      const sel = (d === currentD) ? " selected" : "";
       opts.push(`<option value="${escapeHtml(d)}"${sel}>${escapeHtml(d)}</option>`);
     });
     fDeptoSel.innerHTML = opts.join("");
-    if (current && !deptosSet.has(current)) CURRENT_DEPTO = "";
+    if (currentD && !deptosSet.has(currentD)) CURRENT_DEPTO = "";
   }
 
-  // Rol
+  // Rol (multiselección)
   if (fRolSel) {
-    const current = CURRENT_ROL;
-    const opts = [`<option value="">Todos</option>`];
+    const selectedSet = new Set(CURRENT_ROLES);
+    const options = [];
+
     [...rolesSet].sort((a,b) => a.localeCompare(b, "es")).forEach(r => {
-      const sel = (r === current) ? " selected" : "";
-      opts.push(`<option value="${escapeHtml(r)}"${sel}>${escapeHtml(r)}</option>`);
+      const sel = selectedSet.has(r) ? " selected" : "";
+      options.push(`<option value="${escapeHtml(r)}"${sel}>${escapeHtml(r)}</option>`);
     });
-    fRolSel.innerHTML = opts.join("");
-    if (current && !rolesSet.has(current)) CURRENT_ROL = "";
+
+    fRolSel.innerHTML = options.join("");
+
+    // Limpiar roles que ya no existan
+    CURRENT_ROLES = CURRENT_ROLES.filter(r => rolesSet.has(r));
   }
 }
 
-// Calcula empalmes usando SOLO el subconjunto que pasa filtros de BODEGA/DEPTO/ROL/ESTADO
+// Calcula empalmes usando SOLO el subconjunto que pasa filtros de BODEGA/DEPTO/ROLES/ESTADO
 function computeOverlaps() {
   OVERLAP_ID_SET = new Set();
   if (!VAC_DATA || VAC_DATA.length < 2) return;
@@ -284,9 +289,9 @@ function computeOverlaps() {
       const dep = e.departamento ?? "";
       if (String(dep) !== CURRENT_DEPTO) return false;
     }
-    if (CURRENT_ROL) {
-      const rol = e.rol ?? "";
-      if (String(rol) !== CURRENT_ROL) return false;
+    if (CURRENT_ROLES && CURRENT_ROLES.length > 0) {
+      const rol = (e.rol ?? "").trim();
+      if (!CURRENT_ROLES.includes(rol)) return false;
     }
     if (CURRENT_STATUS) {
       if ((v.status || "") !== CURRENT_STATUS) return false;
@@ -296,7 +301,6 @@ function computeOverlaps() {
 
   if (subset.length < 2) return;
 
-  // 2) Preparar ítems del subconjunto
   const items = subset.map(v => {
     const e = EMP_BY_ID[v.employee_id] || {};
     const bodega = pick(e, WH_CANDIDATES) ?? "";
@@ -308,10 +312,8 @@ function computeOverlaps() {
     };
   });
 
-  // 3) Flag cross-only: solo aplica si NO hay filtro de bodega
   const crossOnlyActive = CROSS_ONLY && !CURRENT_BODEGA;
 
-  // 4) Detectar empalmes (incluye bordes: comparte al menos 1 día)
   for (let i = 0; i < items.length; i++) {
     for (let j = i + 1; j < items.length; j++) {
       const a = items[i], b = items[j];
@@ -335,7 +337,7 @@ function renderList() {
     return;
   }
 
-  // 1) Filtros (bodega/depto/rol/estado/empalmes)
+  // 1) Filtros (bodega/depto/roles/estado/empalmes)
   let rows = VAC_DATA.filter(v => {
     const e = EMP_BY_ID[v.employee_id] || {};
 
@@ -347,9 +349,9 @@ function renderList() {
       const dep = e.departamento ?? "";
       if (String(dep) !== CURRENT_DEPTO) return false;
     }
-    if (CURRENT_ROL) {
-      const rol = e.rol ?? "";
-      if (String(rol) !== CURRENT_ROL) return false;
+    if (CURRENT_ROLES && CURRENT_ROLES.length > 0) {
+      const rol = (e.rol ?? "").trim();
+      if (!CURRENT_ROLES.includes(rol)) return false;
     }
     if (CURRENT_STATUS) {
       if ((v.status || "") !== CURRENT_STATUS) return false;
@@ -453,17 +455,13 @@ window.editDate = async (id, start, end) => {
 
 window.deleteVac = async (id) => {
   if (!confirm("¿Eliminar esta solicitud?")) return;
-  const row = (VAC_DATA || []).find(v => v.id === id);
-  const empId = row?.employee_id;
-  if (!empId) {
-    alert("No se pudo identificar al empleado de la solicitud.");
-    return;
-  }
+
   const { data, error } = await supabase.rpc("vacation_requests_delete_admin", {
     req_id: id
   });
 
   if (error || data !== true) {
+    console.error("Error al eliminar solicitud:", error);
     alert("No se pudo eliminar: " + (error?.message || "RPC devolvió falso"));
     return;
   }
@@ -538,7 +536,6 @@ function renderEmployeesAdmin() {
     return;
   }
 
-  // Ordenar según EMP_SORT_FIELD / EMP_SORT_DIR
   const data = [...EMP_DATA];
   data.sort((a, b) => {
     let cmp = 0;
@@ -603,7 +600,6 @@ function renderEmployeesAdmin() {
     </table>
   `;
 
-  // Handlers de orden en encabezados
   const ths = empList.querySelectorAll("th[data-sort]");
   ths.forEach(th => {
     th.style.cursor = "pointer";
@@ -611,10 +607,8 @@ function renderEmployeesAdmin() {
       const field = th.getAttribute("data-sort");
       if (!field) return;
       if (EMP_SORT_FIELD === field) {
-        // mismo campo => invierte dirección
         EMP_SORT_DIR = (EMP_SORT_DIR === "asc" ? "desc" : "asc");
       } else {
-        // cambia campo => asc por default
         EMP_SORT_FIELD = field;
         EMP_SORT_DIR = "asc";
       }
@@ -668,7 +662,7 @@ if (empForm) {
   });
 }
 
-// Editar empleado (usa prompts sencillos)
+// Editar empleado
 window.empEdit = async (id) => {
   const emp = (EMP_DATA || []).find(e => e.id === id);
   if (!emp) {
@@ -846,7 +840,7 @@ if (empImportInput) {
       showEmpMsg(`Importando ${rowsToInsert.length} empleados…`);
 
       const { data, error } = await supabase.rpc("employees_import_admin", {
-        p_rows: rowsToInsert   // JS array -> supabase lo manda como jsonb
+        p_rows: rowsToInsert
       });
 
       if (error) {
