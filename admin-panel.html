@@ -27,16 +27,13 @@
     </div>
     <h1>Panel de Vacaciones (Administrador)</h1>
 
-<!-- filtros -->
+    <!-- Filtros -->
     <div class="filters" style="margin:10px 0; display:flex; gap:12px; align-items:flex-start; flex-wrap: wrap;">
-      <label for="f-bodega" style="font-weight:600;">Bodega</label>
-<!-- Antes: <select id="f-bodega"></select> -->
-<label class="f-label">Bodega</label>
-<select id="f-bodega" multiple size="6" class="multi">
-  <!-- las opciones se llenan desde JS -->
-</select>
-<small class="hint">Deja sin seleccionar para ver todas</small>
-
+      <label class="f-label" for="f-bodega" style="font-weight:600;">Bodega</label>
+      <div style="display:flex; flex-direction:column; gap:4px;">
+        <select id="f-bodega" multiple size="6" class="multi"><!-- opciones desde JS --></select>
+        <small class="hint">Deja sin seleccionar para ver todas</small>
+      </div>
 
       <label for="f-depto" style="font-weight:600;">Departamento</label>
       <select id="f-depto">
@@ -45,8 +42,7 @@
 
       <label for="f-rol" style="font-weight:600;">Rol</label>
       <div style="display:flex; flex-direction:column; gap:4px;">
-        <select id="f-rol" multiple size="4" style="min-width:150px;">
-        </select>
+        <select id="f-rol" multiple size="4" style="min-width:150px;"><!-- opciones desde JS --></select>
         <span style="font-size:11px; color:#555;">(Ctrl/⌘ + clic para varias opciones)</span>
       </div>
 
@@ -64,8 +60,6 @@
       <input type="checkbox" id="f-cross-only" />
     </div>
 
-
-
     <!-- Lista de solicitudes -->
     <div id="vac-list"></div>
 
@@ -73,11 +67,10 @@
     <div id="emp-panel" class="card">
       <h2>Empleados</h2>
 
-      <div class="emp-toolbar">
+      <div class="emp-toolbar" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <input id="emp-search" type="search" placeholder="Buscar por nombre…" />
         <button id="emp-refresh-btn" type="button">🔄 Actualizar empleados</button>
-
         <button id="emp-export-btn" type="button">⬇️ Exportar CSV</button>
-
         <label class="emp-import">
           ⬆️ Importar CSV
           <input type="file" id="emp-import-input" accept=".csv" hidden>
