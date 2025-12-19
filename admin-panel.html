@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Administrador Vacaciones</title>
-  <link rel="stylesheet" href="admin-panel.css?v=2">
+  <link rel="stylesheet" href="admin-panel.css?v=3">
 </head>
 <body>
 
@@ -51,7 +51,21 @@
         <option value="">Todas</option>
         <option value="Aprobado">Autorizadas</option>
         <option value="Rechazado">Rechazadas</option>
+        <option value="Pendiente">Pendientes</option>
       </select>
+
+      <label for="f-month" style="font-weight:600;">Mes</label>
+      <select id="f-month">
+        <option value="">Todos</option>
+      </select>
+
+      <label for="f-week" style="font-weight:600;">Semana</label>
+      <select id="f-week">
+        <option value="">Todas</option>
+      </select>
+
+      <label for="f-emp" style="font-weight:600;">Empleado</label>
+      <input type="search" id="f-emp" placeholder="Nombre contiene…">
 
       <label for="f-overlaps" style="font-weight:600;">Empalmes</label>
       <input type="checkbox" id="f-overlaps" />
@@ -110,38 +124,37 @@
 
       <div id="emp-msg" class="msg"></div>
 
-<!-- Alta directa de vacaciones (independiente de filtros) -->
-<div class="card" style="margin-top:16px;">
-  <h3>Alta directa de vacaciones</h3>
-  <div class="emp-vac-form" style="display:grid; gap:12px; grid-template-columns: 1fr 140px 140px auto auto; align-items:end;">
-    <div>
-      <label for="vac-emp-search">Empleado</label>
-      <input type="text" id="vac-emp-search" placeholder="Buscar por nombre…" autocomplete="off">
-      <div id="vac-emp-suggest" class="suggest" style="position:relative;"></div>
-      <input type="hidden" id="vac-emp-id">
-    </div>
-    <div>
-      <label for="vac-start">Inicio</label>
-      <input type="date" id="vac-start">
-    </div>
-    <div>
-      <label for="vac-end">Fin</label>
-      <input type="date" id="vac-end">
-    </div>
-    <button id="vac-create" type="button">➕ Crear (Pendiente)</button>
-    <button id="vac-create-approve" type="button">✅ Crear y autorizar</button>
-  </div>
+      <!-- Alta directa de vacaciones (independiente de filtros) -->
+      <div class="card" style="margin-top:16px;">
+        <h3>Alta directa de vacaciones</h3>
+        <div class="emp-vac-form" style="display:grid; gap:12px; grid-template-columns: 1fr 140px 140px auto auto; align-items:end;">
+          <div>
+            <label for="vac-emp-search">Empleado</label>
+            <input type="text" id="vac-emp-search" placeholder="Buscar por nombre…" autocomplete="off">
+            <div id="vac-emp-suggest" class="suggest" style="position:relative;"></div>
+            <input type="hidden" id="vac-emp-id">
+          </div>
+          <div>
+            <label for="vac-start">Inicio</label>
+            <input type="date" id="vac-start">
+          </div>
+          <div>
+            <label for="vac-end">Fin</label>
+            <input type="date" id="vac-end">
+          </div>
+          <button id="vac-create" type="button">➕ Crear (Pendiente)</button>
+          <button id="vac-create-approve" type="button">✅ Crear y autorizar</button>
+        </div>
 
-  <!-- opcional: presets de rango -->
-  <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
-    <button type="button" class="preset" data-preset="this-week">Esta semana</button>
-    <button type="button" class="preset" data-preset="next-week">Siguiente semana</button>
-  </div>
+        <!-- opcional: presets de rango -->
+        <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" class="preset" data-preset="this-week">Esta semana</button>
+          <button type="button" class="preset" data-preset="next-week">Siguiente semana</button>
+        </div>
 
-  <div id="vac-form-msg" class="msg"></div>
-</div>
+        <div id="vac-form-msg" class="msg"></div>
+      </div>
 
-      
       <div id="emp-list" class="emp-list"></div>
     </div>
   </div>
@@ -152,6 +165,6 @@
     window.SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiYXNla3Znc2V2dHdqeXB6em56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIwNTg3NjUsImV4cCI6MjA3NzYzNDc2NX0.a38X1iS6xhlcoVlrjQ99BcoiVf9REMuVzYR82wYnWHY";
   </script>
   <script type="module" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm"></script>
-  <script type="module" src="admin-panel.js?v=rpc-approve-8-emps"></script>
+  <script type="module" src="admin-panel.js?v=unapprove-month-week-emp"></script>
 </body>
 </html>
