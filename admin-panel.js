@@ -78,6 +78,7 @@ const empDepto       = $("#emp-depto");
 const empLoc         = $("#emp-localizacion");
 const empRol         = $("#emp-rol");
 const empIng         = $("#emp-ingreso");
+const empSearchBox   = $("#emp-search"); // 🔎 buscador por nombre
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Estado
@@ -93,12 +94,13 @@ let OVERLAPS_ONLY   = false;   // true: solo solicitudes con empalme
 let CROSS_ONLY      = false;   // true: empalme solo si son de distintas bodegas (sin filtro de bodegas)
 let OVERLAP_ID_SET  = new Set(); // ids que tienen empalme según filtros actuales
 
-// Orden empleados
+// Orden y búsqueda empleados
 let EMP_SORT_FIELD = "nombre";  // nombre, bodega, departamento, localizacion, rol, fecha_ingreso
 let EMP_SORT_DIR   = "asc";     // "asc" | "desc"
+let EMP_SEARCH     = "";        // término de búsqueda por nombre
 
 // ───────────────────────────────────────────────────────────────────────────────
- // Login local
+// Login local
 // ───────────────────────────────────────────────────────────────────────────────
 loginBtn.addEventListener("click", async () => {
   errorMsg.textContent = "";
@@ -477,7 +479,7 @@ window.deleteVac = async (id) => {
 };
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Empleados: carga, alta, import/export CSV, ordenamiento, editar/borrar
+// Empleados: carga, alta, import/export CSV, ordenamiento, editar/borrar, búsqueda
 // ───────────────────────────────────────────────────────────────────────────────
 function showEmpMsg(text, ok = false) {
   if (!empMsg) return;
@@ -485,11 +487,14 @@ function showEmpMsg(text, ok = false) {
   empMsg.className = "msg " + (ok ? "ok" : "err");
 }
 
-// Helpers orden empleados
+// Helpers orden/búsqueda empleados
 function normalizeText(v) {
   return (v == null ? "" : String(v)).trim().toLowerCase();
 }
-
+function normalizeSearch(v) {
+  // minúsculas + sin acentos para comparar
+  return normalizeText(v).normalize("NFD").replace(/\p{Diacritic}/gu, "");
+}
 function compareText(a, b) {
   const aa = normalizeText(a);
   const bb = normalizeText(b);
@@ -497,7 +502,6 @@ function compareText(a, b) {
   if (aa > bb) return 1;
   return 0;
 }
-
 function compareDate(a, b) {
   if (!a && !b) return 0;
   if (!a) return -1;
@@ -508,7 +512,6 @@ function compareDate(a, b) {
   if (da > db) return 1;
   return 0;
 }
-
 function getEmpSortLabel(field, label) {
   if (EMP_SORT_FIELD !== field) return escapeHtml(label);
   const arrow = EMP_SORT_DIR === "asc" ? "▲" : "▼";
@@ -544,7 +547,14 @@ function renderEmployeesAdmin() {
     return;
   }
 
-  const data = [...EMP_DATA];
+  // Filtrar por búsqueda en nombre
+  let data = [...EMP_DATA];
+  if (EMP_SEARCH) {
+    const q = normalizeSearch(EMP_SEARCH);
+    data = data.filter(e => normalizeSearch(e.nombre).includes(q));
+  }
+
+  // Orden
   data.sort((a, b) => {
     let cmp = 0;
     switch (EMP_SORT_FIELD) {
@@ -622,6 +632,18 @@ function renderEmployeesAdmin() {
       }
       renderEmployeesAdmin();
     });
+  });
+}
+
+// 🔎 Búsqueda en tiempo real por nombre (con debounce corto)
+if (empSearchBox) {
+  let t = null;
+  empSearchBox.addEventListener("input", () => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      EMP_SEARCH = empSearchBox.value || "";
+      renderEmployeesAdmin();
+    }, 200);
   });
 }
 
@@ -752,6 +774,7 @@ if (empExportBtn) {
     const header = ["id","nombre","bodega","departamento","localizacion","rol","fecha_ingreso"];
     const lines = [header.join(",")];
 
+    // Exporta todo el listado (no solo lo filtrado por búsqueda)
     for (const e of EMP_DATA) {
       const row = [
         e.id || "",
