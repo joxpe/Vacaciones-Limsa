@@ -30,9 +30,13 @@
 <!-- filtros -->
     <div class="filters" style="margin:10px 0; display:flex; gap:12px; align-items:flex-start; flex-wrap: wrap;">
       <label for="f-bodega" style="font-weight:600;">Bodega</label>
-      <select id="f-bodega">
-        <option value="">Todas</option>
-      </select>
+<!-- Antes: <select id="f-bodega"></select> -->
+<label class="f-label">Bodega</label>
+<select id="f-bodega" multiple size="6" class="multi">
+  <!-- las opciones se llenan desde JS -->
+</select>
+<small class="hint">Deja sin seleccionar para ver todas</small>
+
 
       <label for="f-depto" style="font-weight:600;">Departamento</label>
       <select id="f-depto">
