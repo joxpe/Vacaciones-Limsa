@@ -110,6 +110,38 @@
 
       <div id="emp-msg" class="msg"></div>
 
+<!-- Alta directa de vacaciones (independiente de filtros) -->
+<div class="card" style="margin-top:16px;">
+  <h3>Alta directa de vacaciones</h3>
+  <div class="emp-vac-form" style="display:grid; gap:12px; grid-template-columns: 1fr 140px 140px auto auto; align-items:end;">
+    <div>
+      <label for="vac-emp-search">Empleado</label>
+      <input type="text" id="vac-emp-search" placeholder="Buscar por nombre…" autocomplete="off">
+      <div id="vac-emp-suggest" class="suggest" style="position:relative;"></div>
+      <input type="hidden" id="vac-emp-id">
+    </div>
+    <div>
+      <label for="vac-start">Inicio</label>
+      <input type="date" id="vac-start">
+    </div>
+    <div>
+      <label for="vac-end">Fin</label>
+      <input type="date" id="vac-end">
+    </div>
+    <button id="vac-create" type="button">➕ Crear (Pendiente)</button>
+    <button id="vac-create-approve" type="button">✅ Crear y autorizar</button>
+  </div>
+
+  <!-- opcional: presets de rango -->
+  <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+    <button type="button" class="preset" data-preset="this-week">Esta semana</button>
+    <button type="button" class="preset" data-preset="next-week">Siguiente semana</button>
+  </div>
+
+  <div id="vac-form-msg" class="msg"></div>
+</div>
+
+      
       <div id="emp-list" class="emp-list"></div>
     </div>
   </div>
