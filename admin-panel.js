@@ -85,20 +85,20 @@ const empIng         = $("#emp-ingreso");
 let VAC_DATA = [];
 let EMP_DATA = [];
 let EMP_BY_ID = {};
-let CURRENT_BODEGA = "";   // "", o bodega exacta
-let CURRENT_DEPTO  = "";   // "", o departamento exacto
-let CURRENT_ROLES  = [];   // [], o lista de roles seleccionados
-let CURRENT_STATUS = "";   // "", "Aprobado", "Rechazado"
-let OVERLAPS_ONLY  = false;   // true: solo solicitudes con empalme
-let CROSS_ONLY     = false;   // true: empalme solo si son de distintas bodegas (sin filtro de bodega)
-let OVERLAP_ID_SET = new Set(); // ids que tienen empalme según filtros actuales
+let CURRENT_BODEGAS = [];   // multiselección de bodegas
+let CURRENT_DEPTO   = "";   // "", o departamento exacto
+let CURRENT_ROLES   = [];   // [], o lista de roles seleccionados
+let CURRENT_STATUS  = "";   // "", "Aprobado", "Rechazado"
+let OVERLAPS_ONLY   = false;   // true: solo solicitudes con empalme
+let CROSS_ONLY      = false;   // true: empalme solo si son de distintas bodegas (sin filtro de bodegas)
+let OVERLAP_ID_SET  = new Set(); // ids que tienen empalme según filtros actuales
 
 // Orden empleados
 let EMP_SORT_FIELD = "nombre";  // nombre, bodega, departamento, localizacion, rol, fecha_ingreso
 let EMP_SORT_DIR   = "asc";     // "asc" | "desc"
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Login local
+ // Login local
 // ───────────────────────────────────────────────────────────────────────────────
 loginBtn.addEventListener("click", async () => {
   errorMsg.textContent = "";
@@ -120,10 +120,13 @@ refreshBtn.addEventListener("click", () => {
   loadEmployeesAdmin();
 });
 
-// Filtros vacaciones
+// Filtro Bodega (multiselección)
 if (fBodegaSel) {
   fBodegaSel.addEventListener("change", () => {
-    CURRENT_BODEGA = fBodegaSel.value || "";
+    const selected = Array.from(fBodegaSel.selectedOptions || [])
+      .map(opt => opt.value)
+      .filter(Boolean);
+    CURRENT_BODEGAS = selected;
     computeOverlaps();
     renderList();
   });
@@ -150,6 +153,7 @@ if (fRolSel) {
   });
 }
 
+// Filtro estado
 if (fStatusSel) {
   fStatusSel.addEventListener("change", () => {
     CURRENT_STATUS = fStatusSel.value || "";
@@ -157,12 +161,16 @@ if (fStatusSel) {
     renderList();
   });
 }
+
+// Solo empalmes
 if (fOverlapsCb) {
   fOverlapsCb.addEventListener("change", () => {
     OVERLAPS_ONLY = !!fOverlapsCb.checked;
     renderList();
   });
 }
+
+// Empalmes solo entre distintas bodegas
 if (fCrossOnly) {
   fCrossOnly.addEventListener("change", () => {
     CROSS_ONLY = !!fCrossOnly.checked;
@@ -232,16 +240,17 @@ function populateFilters() {
     if (emp.rol)          rolesSet.add(String(emp.rol).trim());
   }
 
-  // Bodega
+  // Bodega (multiselección)
   if (fBodegaSel) {
-    const current = CURRENT_BODEGA;
-    const opts = [`<option value="">Todas</option>`];
+    const selectedSet = new Set(CURRENT_BODEGAS);
+    const opts = [];
     [...bodegasSet].sort((a,b) => a.localeCompare(b, "es")).forEach(b => {
-      const sel = (b === current) ? " selected" : "";
+      const sel = selectedSet.has(b) ? " selected" : "";
       opts.push(`<option value="${escapeHtml(b)}"${sel}>${escapeHtml(b)}</option>`);
     });
     fBodegaSel.innerHTML = opts.join("");
-    if (current && !bodegasSet.has(current)) CURRENT_BODEGA = "";
+    // limpiar bodegas que ya no existan
+    CURRENT_BODEGAS = CURRENT_BODEGAS.filter(b => bodegasSet.has(b));
   }
 
   // Departamento
@@ -260,14 +269,11 @@ function populateFilters() {
   if (fRolSel) {
     const selectedSet = new Set(CURRENT_ROLES);
     const options = [];
-
     [...rolesSet].sort((a,b) => a.localeCompare(b, "es")).forEach(r => {
       const sel = selectedSet.has(r) ? " selected" : "";
       options.push(`<option value="${escapeHtml(r)}"${sel}>${escapeHtml(r)}</option>`);
     });
-
     fRolSel.innerHTML = options.join("");
-
     // Limpiar roles que ya no existan
     CURRENT_ROLES = CURRENT_ROLES.filter(r => rolesSet.has(r));
   }
@@ -281,9 +287,9 @@ function computeOverlaps() {
   const subset = VAC_DATA.filter(v => {
     const e = EMP_BY_ID[v.employee_id] || {};
 
-    if (CURRENT_BODEGA) {
-      const bod = pick(e, WH_CANDIDATES) ?? "";
-      if (String(bod) !== CURRENT_BODEGA) return false;
+    if (CURRENT_BODEGAS.length > 0) {
+      const bod = String(pick(e, WH_CANDIDATES) ?? "");
+      if (!CURRENT_BODEGAS.includes(bod)) return false;
     }
     if (CURRENT_DEPTO) {
       const dep = e.departamento ?? "";
@@ -312,7 +318,9 @@ function computeOverlaps() {
     };
   });
 
-  const crossOnlyActive = CROSS_ONLY && !CURRENT_BODEGA;
+  // Si el usuario activó "solo empalmes entre bodegas distintas" y
+  // no hay filtro de bodegas aplicado, entonces exigimos bodega distinta.
+  const crossOnlyActive = CROSS_ONLY && CURRENT_BODEGAS.length === 0;
 
   for (let i = 0; i < items.length; i++) {
     for (let j = i + 1; j < items.length; j++) {
@@ -341,9 +349,9 @@ function renderList() {
   let rows = VAC_DATA.filter(v => {
     const e = EMP_BY_ID[v.employee_id] || {};
 
-    if (CURRENT_BODEGA) {
-      const bod = pick(e, WH_CANDIDATES) ?? "";
-      if (String(bod) !== CURRENT_BODEGA) return false;
+    if (CURRENT_BODEGAS.length > 0) {
+      const bod = String(pick(e, WH_CANDIDATES) ?? "");
+      if (!CURRENT_BODEGAS.includes(bod)) return false;
     }
     if (CURRENT_DEPTO) {
       const dep = e.departamento ?? "";
