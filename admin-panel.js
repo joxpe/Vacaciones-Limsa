@@ -78,7 +78,17 @@ const empDepto       = $("#emp-depto");
 const empLoc         = $("#emp-localizacion");
 const empRol         = $("#emp-rol");
 const empIng         = $("#emp-ingreso");
-const empSearchBox   = $("#emp-search"); // 🔎 buscador por nombre
+const empSearch      = $("#emp-search");   // 🔎 buscador de nombres
+
+// Alta directa de vacaciones
+const vacEmpSearch   = $("#vac-emp-search");
+const vacEmpSuggest  = $("#vac-emp-suggest");
+const vacEmpId       = $("#vac-emp-id");
+const vacStart       = $("#vac-start");
+const vacEnd         = $("#vac-end");
+const vacCreateBtn   = $("#vac-create");
+const vacCreateApproveBtn = $("#vac-create-approve");
+const vacFormMsg     = $("#vac-form-msg");
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Estado
@@ -86,6 +96,7 @@ const empSearchBox   = $("#emp-search"); // 🔎 buscador por nombre
 let VAC_DATA = [];
 let EMP_DATA = [];
 let EMP_BY_ID = {};
+
 let CURRENT_BODEGAS = [];   // multiselección de bodegas
 let CURRENT_DEPTO   = "";   // "", o departamento exacto
 let CURRENT_ROLES   = [];   // [], o lista de roles seleccionados
@@ -94,10 +105,10 @@ let OVERLAPS_ONLY   = false;   // true: solo solicitudes con empalme
 let CROSS_ONLY      = false;   // true: empalme solo si son de distintas bodegas (sin filtro de bodegas)
 let OVERLAP_ID_SET  = new Set(); // ids que tienen empalme según filtros actuales
 
-// Orden y búsqueda empleados
-let EMP_SORT_FIELD = "nombre";  // nombre, bodega, departamento, localizacion, rol, fecha_ingreso
-let EMP_SORT_DIR   = "asc";     // "asc" | "desc"
-let EMP_SEARCH     = "";        // término de búsqueda por nombre
+// Orden empleados + filtro de texto
+let EMP_SORT_FIELD   = "nombre";  // nombre, bodega, departamento, localizacion, rol, fecha_ingreso
+let EMP_SORT_DIR     = "asc";     // "asc" | "desc"
+let EMP_FILTER_TEXT  = "";        // filtro por nombre
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Login local
@@ -487,14 +498,11 @@ function showEmpMsg(text, ok = false) {
   empMsg.className = "msg " + (ok ? "ok" : "err");
 }
 
-// Helpers orden/búsqueda empleados
+// Helpers orden empleados
 function normalizeText(v) {
   return (v == null ? "" : String(v)).trim().toLowerCase();
 }
-function normalizeSearch(v) {
-  // minúsculas + sin acentos para comparar
-  return normalizeText(v).normalize("NFD").replace(/\p{Diacritic}/gu, "");
-}
+
 function compareText(a, b) {
   const aa = normalizeText(a);
   const bb = normalizeText(b);
@@ -502,6 +510,7 @@ function compareText(a, b) {
   if (aa > bb) return 1;
   return 0;
 }
+
 function compareDate(a, b) {
   if (!a && !b) return 0;
   if (!a) return -1;
@@ -512,10 +521,23 @@ function compareDate(a, b) {
   if (da > db) return 1;
   return 0;
 }
+
 function getEmpSortLabel(field, label) {
   if (EMP_SORT_FIELD !== field) return escapeHtml(label);
   const arrow = EMP_SORT_DIR === "asc" ? "▲" : "▼";
   return `${escapeHtml(label)} ${arrow}`;
+}
+
+// Búsqueda por nombre (debounce)
+if (empSearch) {
+  let t = null;
+  empSearch.addEventListener("input", () => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      EMP_FILTER_TEXT = (empSearch.value || "").trim().toLowerCase();
+      renderEmployeesAdmin();
+    }, 150);
+  });
 }
 
 // Lee empleados desde la tabla employees (solo lectura, RLS debe permitir)
@@ -547,14 +569,14 @@ function renderEmployeesAdmin() {
     return;
   }
 
-  // Filtrar por búsqueda en nombre
-  let data = [...EMP_DATA];
-  if (EMP_SEARCH) {
-    const q = normalizeSearch(EMP_SEARCH);
-    data = data.filter(e => normalizeSearch(e.nombre).includes(q));
+  // filtro por nombre
+  let data = EMP_DATA;
+  if (EMP_FILTER_TEXT) {
+    data = EMP_DATA.filter(e => (e.nombre || "").toLowerCase().includes(EMP_FILTER_TEXT));
   }
 
-  // Orden
+  // ordenar
+  data = [...data];
   data.sort((a, b) => {
     let cmp = 0;
     switch (EMP_SORT_FIELD) {
@@ -592,6 +614,7 @@ function renderEmployeesAdmin() {
         <td>${escapeHtml(e.rol || "")}</td>
         <td>${escapeHtml(fi)}</td>
         <td class="emp-actions">
+          <button type="button" onclick="empQuickVacation('${e.id}','${(e.nombre||"").replace(/"/g,'&quot;')}')">➕</button>
           <button type="button" onclick="empEdit('${e.id}')">✏️</button>
           <button type="button" onclick="empDelete('${e.id}')">🗑</button>
         </td>
@@ -632,18 +655,6 @@ function renderEmployeesAdmin() {
       }
       renderEmployeesAdmin();
     });
-  });
-}
-
-// 🔎 Búsqueda en tiempo real por nombre (con debounce corto)
-if (empSearchBox) {
-  let t = null;
-  empSearchBox.addEventListener("input", () => {
-    clearTimeout(t);
-    t = setTimeout(() => {
-      EMP_SEARCH = empSearchBox.value || "";
-      renderEmployeesAdmin();
-    }, 200);
   });
 }
 
@@ -774,7 +785,6 @@ if (empExportBtn) {
     const header = ["id","nombre","bodega","departamento","localizacion","rol","fecha_ingreso"];
     const lines = [header.join(",")];
 
-    // Exporta todo el listado (no solo lo filtrado por búsqueda)
     for (const e of EMP_DATA) {
       const row = [
         e.id || "",
@@ -894,4 +904,115 @@ if (empImportInput) {
 // Botón de refresco específico de empleados
 if (empRefreshBtn) {
   empRefreshBtn.addEventListener("click", loadEmployeesAdmin);
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Alta directa de vacaciones: helpers
+// ───────────────────────────────────────────────────────────────────────────────
+function showVacMsg(text, ok=false) {
+  if (!vacFormMsg) return;
+  vacFormMsg.textContent = text || "";
+  vacFormMsg.className = "msg " + (ok ? "ok" : "err");
+}
+
+// Autocomplete simple con EMP_DATA
+if (vacEmpSearch) {
+  let t = null;
+  vacEmpSearch.addEventListener("input", () => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      const q = (vacEmpSearch.value||"").trim().toLowerCase();
+      if (!q) { vacEmpSuggest.innerHTML=""; vacEmpId.value=""; return; }
+
+      const hits = (EMP_DATA||[])
+        .filter(e => (e.nombre||"").toLowerCase().includes(q))
+        .slice(0, 8);
+
+      if (hits.length===0) { vacEmpSuggest.innerHTML=""; return; }
+
+      const list = hits.map(h => `
+        <div class="suggest-item" data-id="${h.id}" data-name="${(h.nombre||"").replace(/"/g,'&quot;')}">
+          ${escapeHtml(h.nombre||"")} <small>(${escapeHtml(h.bodega||"-")}, ${escapeHtml(h.rol||"-")})</small>
+        </div>
+      `).join("");
+
+      vacEmpSuggest.innerHTML = `<div class="suggest-menu" style="position:absolute; z-index:10; background:#fff; border:1px solid #ddd; width:100%;">${list}</div>`;
+
+      vacEmpSuggest.querySelectorAll(".suggest-item").forEach(item=>{
+        item.addEventListener("click", ()=>{
+          vacEmpId.value = item.getAttribute("data-id");
+          vacEmpSearch.value = item.getAttribute("data-name");
+          vacEmpSuggest.innerHTML="";
+        });
+      });
+    }, 150);
+  });
+}
+
+// presets de semana
+document.querySelectorAll("button.preset")?.forEach(btn=>{
+  btn.addEventListener("click", ()=>{
+    const kind = btn.dataset.preset;
+    const today = new Date(); // usa tz del navegador
+    const day = today.getDay(); // 0 dom .. 6 sab
+    const mondayOffset = (day===0? -6 : (1-day));
+    let base = new Date(today); base.setDate(today.getDate()+mondayOffset);
+    if (kind==="next-week") base.setDate(base.getDate()+7);
+    const start = new Date(base); // lunes
+    const end = new Date(base); end.setDate(end.getDate()+5); // sábado
+    vacStart.value = start.toISOString().slice(0,10);
+    vacEnd.value   = end.toISOString().slice(0,10);
+  });
+});
+
+// Acción rápida desde la tabla de empleados
+window.empQuickVacation = (id, nombre) => {
+  if (!vacEmpId || !vacEmpSearch) return;
+  vacEmpId.value = id;
+  vacEmpSearch.value = nombre || "";
+  vacEmpSearch.focus();
+  showVacMsg(`Empleado seleccionado: ${nombre}`, true);
+};
+
+// Crear pendiente
+if (vacCreateBtn) {
+  vacCreateBtn.addEventListener("click", async ()=>{
+    showVacMsg("");
+    const empId = (vacEmpId?.value||"").trim();
+    const s = (vacStart?.value||"").trim();
+    const e = (vacEnd?.value||"").trim();
+    if (!empId || !s || !e) { showVacMsg("Falta empleado, inicio o fin.", false); return; }
+
+    const { data, error } = await supabase.rpc("vacation_requests_create", {
+      emp_id: empId, s, e
+    });
+    if (error) { showVacMsg("Error al crear: "+(error.message||""), false); return; }
+
+    showVacMsg("Solicitud creada (Pendiente).", true);
+    await loadVacations();
+  });
+}
+
+// Crear y autorizar
+if (vacCreateApproveBtn) {
+  vacCreateApproveBtn.addEventListener("click", async ()=>{
+    showVacMsg("");
+    const empId = (vacEmpId?.value||"").trim();
+    const s = (vacStart?.value||"").trim();
+    const e = (vacEnd?.value||"").trim();
+    if (!empId || !s || !e) { showVacMsg("Falta empleado, inicio o fin.", false); return; }
+
+    // 1) crear pendiente
+    const { data: newId, error: err1 } = await supabase.rpc("vacation_requests_create", {
+      emp_id: empId, s, e
+    });
+    if (err1 || !newId) { showVacMsg("Error al crear: "+(err1?.message||"RPC devolvió nulo"), false); return; }
+
+    // 2) autorizar
+    const { data: ok, error: err2 } = await supabase.rpc("vacation_requests_approve", { req_id: newId });
+    if (err2 || ok!==true) { showVacMsg("Creado, pero no se pudo autorizar: "+(err2?.message||"RPC devolvió falso"), false); await loadVacations(); return; }
+
+    showVacMsg("Solicitud creada y autorizada.", true);
+    await loadVacations();
+  });
 }
