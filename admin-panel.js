@@ -4,6 +4,7 @@
 //   vacation_requests_approve(req_id uuid) -> boolean
 //   vacation_requests_reject(req_id uuid) -> boolean
 //   vacation_requests_update_dates(req_id uuid, new_start date, new_end date) -> boolean
+//   vacation_requests_create_admin_force(emp_id uuid, s date, e date, auto_approve boolean DEFAULT false) -> uuid
 //
 // RPCs empleados (SECURITY DEFINER):
 //   employees_insert_admin(p_nombre text, p_bodega text, p_departamento text, p_localizacion text, p_rol text, p_fecha_ingreso date) -> uuid
@@ -974,7 +975,7 @@ window.empQuickVacation = (id, nombre) => {
   showVacMsg(`Empleado seleccionado: ${nombre}`, true);
 };
 
-// Crear pendiente
+// Crear (forzado) pendiente
 if (vacCreateBtn) {
   vacCreateBtn.addEventListener("click", async ()=>{
     showVacMsg("");
@@ -983,17 +984,18 @@ if (vacCreateBtn) {
     const e = (vacEnd?.value||"").trim();
     if (!empId || !s || !e) { showVacMsg("Falta empleado, inicio o fin.", false); return; }
 
-    const { data, error } = await supabase.rpc("vacation_requests_create", {
-      emp_id: empId, s, e
+    // RPC admin que levanta bypass en BD y evita bloqueos
+    const { data: newId, error } = await supabase.rpc("vacation_requests_create_admin_force", {
+      emp_id: empId, s, e, auto_approve: false
     });
-    if (error) { showVacMsg("Error al crear: "+(error.message||""), false); return; }
+    if (error || !newId) { showVacMsg("Error al crear: "+(error?.message||"RPC devolvió nulo"), false); return; }
 
-    showVacMsg("Solicitud creada (Pendiente).", true);
+    showVacMsg("Solicitud creada (forzada) en Pendiente.", true);
     await loadVacations();
   });
 }
 
-// Crear y autorizar
+// Crear y autorizar (forzado)
 if (vacCreateApproveBtn) {
   vacCreateApproveBtn.addEventListener("click", async ()=>{
     showVacMsg("");
@@ -1002,17 +1004,12 @@ if (vacCreateApproveBtn) {
     const e = (vacEnd?.value||"").trim();
     if (!empId || !s || !e) { showVacMsg("Falta empleado, inicio o fin.", false); return; }
 
-    // 1) crear pendiente
-    const { data: newId, error: err1 } = await supabase.rpc("vacation_requests_create", {
-      emp_id: empId, s, e
+    const { data: newId, error } = await supabase.rpc("vacation_requests_create_admin_force", {
+      emp_id: empId, s, e, auto_approve: true
     });
-    if (err1 || !newId) { showVacMsg("Error al crear: "+(err1?.message||"RPC devolvió nulo"), false); return; }
+    if (error || !newId) { showVacMsg("Error al crear/autorizar: "+(error?.message||"RPC devolvió nulo"), false); return; }
 
-    // 2) autorizar
-    const { data: ok, error: err2 } = await supabase.rpc("vacation_requests_approve", { req_id: newId });
-    if (err2 || ok!==true) { showVacMsg("Creado, pero no se pudo autorizar: "+(err2?.message||"RPC devolvió falso"), false); await loadVacations(); return; }
-
-    showVacMsg("Solicitud creada y autorizada.", true);
+    showVacMsg("Solicitud creada y autorizada (forzada).", true);
     await loadVacations();
   });
 }
