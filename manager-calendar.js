@@ -77,7 +77,7 @@ function buildIndexesFromEmployees(rows){
   DEPTOS_ALL = Array.from(deptosSet).sort(cmp);
   LOC_ALL    = Array.from(locsSet).sort(cmp);
 
-  // Llenar selects estáticos (bodegas se reconstruye dinámicamente por loc/depto)
+  // Llenar selects estáticos (Bodega se reconstruye dinámicamente por Loc/Depto)
   $dep.innerHTML = `<option value="">Todos</option>` + DEPTOS_ALL.map(d=>`<option value="${d}">${d}</option>`).join('');
   $loc.innerHTML = `<option value="">Todas</option>` + LOC_ALL.map(l=>`<option value="${l}">${l}</option>`).join('');
 
@@ -103,15 +103,14 @@ function computeVisibleBodegasByLocDept(){
     set.add(normalizeBodegaForUI(r.bodega));
   }
 
-  // Si no hay filas que coincidan con loc/depto actuales, mostrar TODAS como fallback útil
-  // (opcional: si prefieres “ninguna”, elimina el fallback)
+  // Fallback: si no hay bodegas que cumplan, mostrar TODAS (puedes quitar esta línea si prefieres dejar vacío)
   const arr = set.size > 0 ? Array.from(set).sort(cmp) : [...BODS_ALL];
   return arr;
 }
 
 /**
  * Reconstruye las opciones visibles del multiselect de bodegas
- * según la localización y/o departamento seleccionados.
+ * según la Localización y/o Departamento seleccionados.
  * Mantiene la selección válida (intersección); deselecciona lo que ya no aplique.
  */
 function refreshBodegaOptionsByLocDept(){
@@ -162,9 +161,12 @@ function buildCalendarGrid(monthDate){
     cell.dataset.date = dateStr;
     cell.innerHTML = `<div class="cal-daynum">${d}</div><div class="cal-badges"></div>`;
 
+    // Buen Fin (marcar)
     if (dateStr >= "2026-11-13" && dateStr <= "2026-11-16") {
       cell.classList.add('buenfin');
-    } else if (HOLIDAYS_2026.has(dateStr)) {
+    }
+    // Otros feriados (no laborales)
+    else if (HOLIDAYS_2026.has(dateStr)) {
       cell.classList.add('holiday');
     }
 
@@ -197,11 +199,11 @@ async function loadMonth(){
   const first = firstDayOfMonth(CUR.month);
   const last  = lastDayOfMonth(CUR.month);
 
-  // Filtramos por departamento en servidor (mejor performance),
-  // y aplicamos Localización/Bodegas en cliente (multi e interdependencias).
+  // Filtramos por Departamento en servidor.
+  // Localización y Bodega (multiselección) se aplican en cliente.
   const { data, error } = await supabase.rpc('mgr_calendar_month', {
-    p_bodega: null,
-    p_depto:  CUR.depto || null,
+    p_bodega: null,                 // manejamos bodegas en cliente (multi)
+    p_depto:  CUR.depto || null,    // en servidor
     p_first:  ymd(first),
     p_last:   ymd(last)
   });
@@ -210,12 +212,12 @@ async function loadMonth(){
   const selBods = new Set(CUR.bodegas);
 
   const filtered = (data || []).filter(r => {
-    // LOCALIZACIÓN (cliente)
+    // LOCALIZACIÓN
     if (CUR.loc) {
       const lc = (LOC_BY_ID[r.employee_id] ?? '').trim();
       if (lc !== CUR.loc) return false;
     }
-    // BODEGA (cliente: multiselección; si no hay selección, significa "todas las visibles")
+    // BODEGA (si no hay selección, significa "todas las visibles")
     if (selBods.size > 0) {
       const b = normalizeBodegaForUI(r.bodega);
       if (!selBods.has(b)) return false;
@@ -263,14 +265,14 @@ async function loadMonth(){
 $bod.addEventListener('change', () => { CUR.bodegas = getSelectedValues($bod); loadMonth(); });
 $dep.addEventListener('change', () => {
   CUR.depto = $dep.value || '';
-  // Cambia el conjunto visible de bodegas por depto (y por loc si aplica)
+  // Recalcular opciones de Bodega por Depto (y por Loc si aplica)
   refreshBodegaOptionsByLocDept();
   CUR.bodegas = getSelectedValues($bod);
   loadMonth();
 });
 $loc.addEventListener('change', () => {
   CUR.loc = $loc.value || '';
-  // Cambia el conjunto visible de bodegas por loc (y por depto si aplica)
+  // Recalcular opciones de Bodega por Loc (y por Depto si aplica)
   refreshBodegaOptionsByLocDept();
   CUR.bodegas = getSelectedValues($bod);
   loadMonth();
