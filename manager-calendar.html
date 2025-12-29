@@ -17,12 +17,14 @@
     <h1>Calendario de Vacaciones</h1>
 
     <div class="filters card">
-      <div class="row">
-        <div class="col">
+      <div class="row" style="gap:12px; align-items:flex-end; flex-wrap:wrap;">
+        <div class="col" style="min-width:220px;">
           <label for="f-bodega">Bodega</label>
-          <select id="f-bodega">
-            <option value="">Todas</option>
+          <!-- 👇 Multiselección -->
+          <select id="f-bodega" multiple size="6" class="multi" style="min-width:220px;">
+            <!-- opciones desde JS -->
           </select>
+          <small class="hint">Ctrl/⌘ + clic para varias. Deja sin seleccionar para ver todas.</small>
         </div>
 
         <div class="col">
@@ -80,6 +82,6 @@
     window.SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiYXNla3Znc2V2dHdqeXB6em56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIwNTg3NjUsImV4cCI6MjA3NzYzNDc2NX0.a38X1iS6xhlcoVlrjQ99BcoiVf9REMuVzYR82wYnWHY";
   </script>
   <script type="module" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm"></script>
-  <script type="module" src="manager-calendar.js?v=2026.12.29-loc"></script>
+  <script type="module" src="manager-calendar.js?v=2026.12.29-multi-bod"></script>
 </body>
 </html>
