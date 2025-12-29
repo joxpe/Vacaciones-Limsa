@@ -3,6 +3,7 @@ const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
 const $bod   = document.getElementById('f-bodega');
 const $dep   = document.getElementById('f-depto');
+const $loc   = document.getElementById('f-localizacion');  // ⬅️ nuevo
 const $month = document.getElementById('f-month');
 const $cal   = document.getElementById('calendar');
 const $msg   = document.getElementById('msg');
@@ -23,10 +24,14 @@ function initials(nombre){
 }
 
 // Estado actual del filtro/mes
-let CUR = { month: new Date(), bodega: '', depto: '' };
+let CUR = { month: new Date(), bodega: '', depto: '', loc: '' }; // ⬅️ loc
 
 // Feriados 2026 cargados desde Supabase
 let HOLIDAYS_2026 = new Set();
+
+// Mapas auxiliares para filtro por localización
+let LOC_BY_ID = {}; // employee_id -> localizacion
+let EMP_ROWS_CACHE = []; // cache employees_public_v2 para opciones
 
 async function loadHolidays(){
   try {
@@ -44,14 +49,34 @@ async function loadHolidays(){
 
 async function loadFilters(){
   const rpc = await supabase.rpc('employees_public_v2');
-  if (rpc.error) { showMsg('No pude cargar bodegas/deptos: ' + rpc.error.message, false); return; }
+  if (rpc.error) { showMsg('No pude cargar bodegas/deptos/locs: ' + rpc.error.message, false); return; }
   const rows = rpc.data || [];
+  EMP_ROWS_CACHE = rows;
 
-  const bodegas = Array.from(new Set(rows.map(r => r.bodega ?? '(Sin bodega)'))).sort(new Intl.Collator('es-MX').compare);
-  const deptos  = Array.from(new Set(rows.map(r => r.departamento ?? '(Sin depto)'))).sort(new Intl.Collator('es-MX').compare);
+  // Construimos conjuntos únicos
+  const bodegas = new Set();
+  const deptos  = new Set();
+  const locs    = new Set();
+  LOC_BY_ID = {};
 
-  $bod.innerHTML = `<option value="">Todas</option>` + bodegas.map(b=>`<option value="${b}">${b}</option>`).join('');
-  $dep.innerHTML = `<option value="">Todos</option>` + deptos.map(d=>`<option value="${d}">${d}</option>`).join('');
+  for (const r of rows) {
+    LOC_BY_ID[r.id] = r.localizacion ?? '(Sin localización)';
+    bodegas.add(r.bodega ?? '(Sin bodega)');
+    deptos.add(r.departamento ?? '(Sin depto)');
+    locs.add(r.localizacion ?? '(Sin localización)');
+  }
+
+  const cmp = new Intl.Collator('es-MX').compare;
+
+  const bodegasArr = Array.from(bodegas).sort(cmp);
+  const deptosArr  = Array.from(deptos).sort(cmp);
+  const locsArr    = Array.from(locs).sort(cmp);
+
+  $bod.innerHTML = `<option value="">Todas</option>` + bodegasArr.map(b=>`<option value="${b}">${b}</option>`).join('');
+  $dep.innerHTML = `<option value="">Todos</option>` + deptosArr.map(d=>`<option value="${d}">${d}</option>`).join('');
+  if ($loc) {
+    $loc.innerHTML = `<option value="">Todas</option>` + locsArr.map(l=>`<option value="${l}">${l}</option>`).join('');
+  }
 }
 
 function buildCalendarGrid(monthDate){
@@ -117,6 +142,7 @@ async function loadMonth(){
   const first = firstDayOfMonth(CUR.month);
   const last  = lastDayOfMonth(CUR.month);
 
+  // El RPC no recibe localización; filtramos localización en cliente con LOC_BY_ID
   const { data, error } = await supabase.rpc('mgr_calendar_month', {
     p_bodega: CUR.bodega || null,
     p_depto:  CUR.depto  || null,
@@ -125,8 +151,15 @@ async function loadMonth(){
   });
   if (error) { showMsg('Error leyendo calendario: ' + error.message, false); return; }
 
+  // Filtrado por localización (si se seleccionó)
+  const filtered = (data || []).filter(r => {
+    if (!CUR.loc) return true;
+    const loc = LOC_BY_ID[r.employee_id] || '(Sin localización)';
+    return String(loc) === CUR.loc;
+  });
+
   const mapDay = {};
-  for(const r of (data||[])){
+  for(const r of filtered){
     const day = r.day;
     if(!mapDay[day]) mapDay[day] = [];
     mapDay[day].push(r);
@@ -147,13 +180,13 @@ async function loadMonth(){
 
     const $badges = cell.querySelector('.cal-badges');
     $badges.innerHTML = mapDay[day].map(r => {
-      // 👇 Aquí el cambio importante: usamos 'Aprobado' y 'Pendiente'
       const klass =
         r.status === 'Aprobado'  ? 'badge auth' :
         r.status === 'Pendiente' ? 'badge pend' :
         'badge other';
 
-      const tip = `${r.nombre} • ${r.bodega ?? ''} • ${r.departamento ?? ''} • ${r.status}`;
+      const loc = LOC_BY_ID[r.employee_id] || '';
+      const tip = `${r.nombre} • ${r.bodega ?? ''} • ${r.departamento ?? ''} • ${loc} • ${r.status}`;
       return `<span class="${klass}" title="${tip}">${initials(r.nombre)}</span>`;
     }).join('');
   }
@@ -164,6 +197,9 @@ async function loadMonth(){
 // Eventos
 $bod.addEventListener('change', () => { CUR.bodega = $bod.value || ''; loadMonth(); });
 $dep.addEventListener('change', () => { CUR.depto  = $dep.value || ''; loadMonth(); });
+if ($loc) {
+  $loc.addEventListener('change', () => { CUR.loc = $loc.value || ''; loadMonth(); });
+}
 $month.addEventListener('change', () => {
   const [y,m] = $month.value.split('-').map(Number);
   CUR.month = new Date(y, m-1, 1);
