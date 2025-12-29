@@ -1,16 +1,19 @@
-// admin-panel.js (vacaciones + empleados + unapprove + filtros por mes/semana/empleado)
+// admin-panel.js (vacaciones + empleados con orden, alta, importar, editar y borrar)
 // RPCs vacaciones (SECURITY DEFINER):
 //   vacation_requests_delete_admin(req_id uuid) -> boolean
 //   vacation_requests_approve(req_id uuid) -> boolean
 //   vacation_requests_reject(req_id uuid) -> boolean
-//   vacation_requests_unapprove(req_id uuid) -> boolean   <-- NUEVA
 //   vacation_requests_update_dates(req_id uuid, new_start date, new_end date) -> boolean
+//   vacation_requests_unapprove(req_id uuid) -> boolean
+//   vacation_requests_create(emp_id uuid, s date, e date) -> uuid
+//   vacation_requests_create_admin_force(emp_id uuid, s date, e date, auto_approve boolean DEFAULT false) -> uuid
+//   (opcional para bypass al aprobar) vacation_requests_approve_admin_force(req_id uuid) -> boolean
 //
 // RPCs empleados (SECURITY DEFINER):
-//   employees_insert_admin(...)
-//   employees_import_admin(...)
-//   employees_update_admin(...)
-//   employees_delete_admin(...)
+//   employees_insert_admin(p_nombre text, p_bodega text, p_departamento text, p_localizacion text, p_rol text, p_fecha_ingreso date) -> uuid
+//   employees_import_admin(p_rows jsonb) -> integer
+//   employees_update_admin(p_id uuid, p_nombre text, p_bodega text, p_departamento text, p_localizacion text, p_rol text, p_fecha_ingreso date) -> boolean
+//   employees_delete_admin(p_id uuid) -> boolean
 
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
 const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
@@ -26,19 +29,8 @@ const monthYearKey = (isoDate) => {
   const d = new Date(isoDate);
   const y = d.getFullYear();
   const m = d.getMonth(); // 0..11
-  return { key: `${y}-${String(m+1).padStart(2,"0")}`, label: `${MESES_ES[m]} ${y}`, m: m+1, y };
+  return { key: `${y}-${String(m+1).padStart(2,"0")}`, label: `${MESES_ES[m]} ${y}` };
 };
-
-// Semana ISO
-function isoWeek(d0) {
-  const d = new Date(Date.UTC(d0.getFullYear(), d0.getMonth(), d0.getDate()));
-  const dayNum = d.getUTCDay() || 7; // 1..7 (lunes=1)
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
-  const week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
-  const isoYear = d.getUTCFullYear();
-  return { week, year: isoYear };
-}
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Utilidades
@@ -73,9 +65,6 @@ const fBodegaSel  = $("#f-bodega");
 const fDeptoSel   = $("#f-depto");
 const fRolSel     = $("#f-rol");
 const fStatusSel  = $("#f-status");
-const fMonthSel   = $("#f-month");
-const fWeekSel    = $("#f-week");
-const fEmpSearch  = $("#f-emp");
 const fOverlapsCb = $("#f-overlaps");
 const fCrossOnly  = $("#f-cross-only");
 
@@ -93,9 +82,9 @@ const empDepto       = $("#emp-depto");
 const empLoc         = $("#emp-localizacion");
 const empRol         = $("#emp-rol");
 const empIng         = $("#emp-ingreso");
-const empSearch      = $("#emp-search");
+const empSearch      = $("#emp-search");   // 🔎 buscador de nombres
 
-// Alta directa
+// Alta directa de vacaciones
 const vacEmpSearch   = $("#vac-emp-search");
 const vacEmpSuggest  = $("#vac-emp-suggest");
 const vacEmpId       = $("#vac-emp-id");
@@ -115,22 +104,18 @@ let EMP_BY_ID = {};
 let CURRENT_BODEGAS = [];   // multiselección de bodegas
 let CURRENT_DEPTO   = "";   // "", o departamento exacto
 let CURRENT_ROLES   = [];   // [], o lista de roles seleccionados
-let CURRENT_STATUS  = "";   // "", "Aprobado", "Rechazado", "Pendiente"
-let CURRENT_MONTH   = "";   // "YYYY-MM" o ""
-let CURRENT_WEEK    = "";   // "YYYY-W##" o ""
-let CURRENT_EMP_Q   = "";   // filtro por nombre (vacaciones)
-
-let OVERLAPS_ONLY   = false;
-let CROSS_ONLY      = false;
-let OVERLAP_ID_SET  = new Set();
+let CURRENT_STATUS  = "";   // "", "Aprobado", "Rechazado"
+let OVERLAPS_ONLY   = false;   // true: solo solicitudes con empalme
+let CROSS_ONLY      = false;   // true: empalme solo si son de distintas bodegas (sin filtro de bodegas)
+let OVERLAP_ID_SET  = new Set(); // ids que tienen empalme según filtros actuales
 
 // Orden empleados + filtro de texto
-let EMP_SORT_FIELD   = "nombre";
-let EMP_SORT_DIR     = "asc";
-let EMP_FILTER_TEXT  = "";
+let EMP_SORT_FIELD   = "nombre";  // nombre, bodega, departamento, localizacion, rol, fecha_ingreso
+let EMP_SORT_DIR     = "asc";     // "asc" | "desc"
+let EMP_FILTER_TEXT  = "";        // filtro por nombre
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Login
+// Login local
 // ───────────────────────────────────────────────────────────────────────────────
 loginBtn.addEventListener("click", async () => {
   errorMsg.textContent = "";
@@ -152,7 +137,7 @@ refreshBtn.addEventListener("click", () => {
   loadEmployeesAdmin();
 });
 
-// Filtros UI (vacaciones)
+// Filtro Bodega (multiselección)
 if (fBodegaSel) {
   fBodegaSel.addEventListener("change", () => {
     const selected = Array.from(fBodegaSel.selectedOptions || [])
@@ -164,6 +149,7 @@ if (fBodegaSel) {
   });
 }
 
+// Filtro departamento
 if (fDeptoSel) {
   fDeptoSel.addEventListener("change", () => {
     CURRENT_DEPTO = fDeptoSel.value || "";
@@ -172,6 +158,7 @@ if (fDeptoSel) {
   });
 }
 
+// Filtro de roles (multiselección)
 if (fRolSel) {
   fRolSel.addEventListener("change", () => {
     const selected = Array.from(fRolSel.selectedOptions || [])
@@ -183,6 +170,7 @@ if (fRolSel) {
   });
 }
 
+// Filtro estado
 if (fStatusSel) {
   fStatusSel.addEventListener("change", () => {
     CURRENT_STATUS = fStatusSel.value || "";
@@ -191,40 +179,15 @@ if (fStatusSel) {
   });
 }
 
-if (fMonthSel) {
-  fMonthSel.addEventListener("change", () => {
-    CURRENT_MONTH = fMonthSel.value || "";
-    computeOverlaps();
-    renderList();
-  });
-}
-
-if (fWeekSel) {
-  fWeekSel.addEventListener("change", () => {
-    CURRENT_WEEK = fWeekSel.value || "";
-    computeOverlaps();
-    renderList();
-  });
-}
-
-if (fEmpSearch) {
-  let t = null;
-  fEmpSearch.addEventListener("input", () => {
-    clearTimeout(t);
-    t = setTimeout(() => {
-      CURRENT_EMP_Q = (fEmpSearch.value || "").trim().toLowerCase();
-      computeOverlaps();
-      renderList();
-    }, 150);
-  });
-}
-
+// Solo empalmes
 if (fOverlapsCb) {
   fOverlapsCb.addEventListener("change", () => {
     OVERLAPS_ONLY = !!fOverlapsCb.checked;
     renderList();
   });
 }
+
+// Empalmes solo entre distintas bodegas
 if (fCrossOnly) {
   fCrossOnly.addEventListener("change", () => {
     CROSS_ONLY = !!fCrossOnly.checked;
@@ -234,11 +197,12 @@ if (fCrossOnly) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Vacaciones: carga y filtros auxiliares
+// Vacaciones: carga principal
 // ───────────────────────────────────────────────────────────────────────────────
 async function loadVacations() {
   vacList.innerHTML = "<p>Cargando...</p>";
 
+  // 1) Solicitudes
   const { data: vacs, error: err1 } = await supabase
     .from("vacation_requests")
     .select("id, employee_id, start_date, end_date, status, created_at")
@@ -250,8 +214,12 @@ async function loadVacations() {
     return;
   }
   VAC_DATA = vacs || [];
+  if (VAC_DATA.length === 0) {
+    vacList.innerHTML = "<p>No hay solicitudes registradas.</p>";
+    return;
+  }
 
-  // Empleados relacionados
+  // 2) Empleados (solo los que tienen solicitudes)
   const empIds = [...new Set(VAC_DATA.map(v => v.employee_id).filter(Boolean))];
   EMP_BY_ID = {};
   if (empIds.length > 0) {
@@ -266,35 +234,30 @@ async function loadVacations() {
     }
   }
 
+  // 3) Filtros (bodega/departamento/rol) según empleados con solicitudes
   populateFilters();
+
+  // 4) Empalmes (según filtros)
   computeOverlaps();
+
+  // 5) Render
   renderList();
 }
 
-// Llena combos bodega/depto/rol/mes/semana
+// Llena combos de bodega, departamento y rol
 function populateFilters() {
   const bodegasSet = new Set();
   const deptosSet  = new Set();
   const rolesSet   = new Set();
-  const monthsSet  = new Set(); // "YYYY-MM"
-  const weeksSet   = new Set(); // "YYYY-W##"
 
-  for (const v of VAC_DATA) {
-    const e = EMP_BY_ID[v.employee_id] || {};
-    const bod = pick(e, WH_CANDIDATES);
+  for (const emp of Object.values(EMP_BY_ID)) {
+    const bod = pick(emp, WH_CANDIDATES);
     if (bod) bodegasSet.add(String(bod));
-    if (e.departamento) deptosSet.add(String(e.departamento).trim());
-    if (e.rol)          rolesSet.add(String(e.rol).trim());
-
-    const d = new Date(v.start_date);
-    const { y, m, key } = monthYearKey(v.start_date);
-    monthsSet.add(`${y}-${String(m).padStart(2,"0")}`);
-
-    const iw = isoWeek(d);
-    weeksSet.add(`${iw.year}-W${String(iw.week).padStart(2,"0")}`);
+    if (emp.departamento) deptosSet.add(String(emp.departamento).trim());
+    if (emp.rol)          rolesSet.add(String(emp.rol).trim());
   }
 
-  // Bodega
+  // Bodega (multiselección)
   if (fBodegaSel) {
     const selectedSet = new Set(CURRENT_BODEGAS);
     const opts = [];
@@ -303,6 +266,7 @@ function populateFilters() {
       opts.push(`<option value="${escapeHtml(b)}"${sel}>${escapeHtml(b)}</option>`);
     });
     fBodegaSel.innerHTML = opts.join("");
+    // limpiar bodegas que ya no existan
     CURRENT_BODEGAS = CURRENT_BODEGAS.filter(b => bodegasSet.has(b));
   }
 
@@ -318,7 +282,7 @@ function populateFilters() {
     if (currentD && !deptosSet.has(currentD)) CURRENT_DEPTO = "";
   }
 
-  // Rol
+  // Rol (multiselección)
   if (fRolSel) {
     const selectedSet = new Set(CURRENT_ROLES);
     const options = [];
@@ -327,37 +291,12 @@ function populateFilters() {
       options.push(`<option value="${escapeHtml(r)}"${sel}>${escapeHtml(r)}</option>`);
     });
     fRolSel.innerHTML = options.join("");
+    // Limpiar roles que ya no existan
     CURRENT_ROLES = CURRENT_ROLES.filter(r => rolesSet.has(r));
-  }
-
-  // Mes
-  if (fMonthSel) {
-    const current = CURRENT_MONTH;
-    const opts = [`<option value="">Todos</option>`];
-    [...monthsSet].sort().forEach(mm => {
-      const [yy, m] = mm.split("-");
-      const label = `${MESES_ES[parseInt(m,10)-1]} ${yy}`;
-      const sel = (mm === current) ? " selected" : "";
-      opts.push(`<option value="${mm}"${sel}>${escapeHtml(label)}</option>`);
-    });
-    fMonthSel.innerHTML = opts.join("");
-    if (current && !monthsSet.has(current)) CURRENT_MONTH = "";
-  }
-
-  // Semana
-  if (fWeekSel) {
-    const current = CURRENT_WEEK;
-    const opts = [`<option value="">Todas</option>`];
-    [...weeksSet].sort().forEach(wk => {
-      const sel = (wk === current) ? " selected" : "";
-      opts.push(`<option value="${wk}"${sel}>${escapeHtml(wk)}</option>`);
-    });
-    fWeekSel.innerHTML = opts.join("");
-    if (current && !weeksSet.has(current)) CURRENT_WEEK = "";
   }
 }
 
-// Empalmes en subset filtrado (sin considerar Mes/Semana/Empleado, para velocidad lo dejamos igual)
+// Calcula empalmes usando SOLO el subconjunto que pasa filtros de BODEGA/DEPTO/ROLES/ESTADO
 function computeOverlaps() {
   OVERLAP_ID_SET = new Set();
   if (!VAC_DATA || VAC_DATA.length < 2) return;
@@ -414,14 +353,14 @@ function computeOverlaps() {
   }
 }
 
-// Render
+// Render por bloques de MES
 function renderList() {
   if (!VAC_DATA || VAC_DATA.length === 0) {
     vacList.innerHTML = "<p>No hay solicitudes registradas.</p>";
     return;
   }
 
-  // Filtro completo
+  // 1) Filtros
   let rows = VAC_DATA.filter(v => {
     const e = EMP_BY_ID[v.employee_id] || {};
 
@@ -440,21 +379,6 @@ function renderList() {
     if (CURRENT_STATUS) {
       if ((v.status || "") !== CURRENT_STATUS) return false;
     }
-    if (CURRENT_MONTH) {
-      const d = new Date(v.start_date);
-      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-      if (key !== CURRENT_MONTH) return false;
-    }
-    if (CURRENT_WEEK) {
-      const d = new Date(v.start_date);
-      const iw = isoWeek(d);
-      const key = `${iw.year}-W${String(iw.week).padStart(2,"0")}`;
-      if (key !== CURRENT_WEEK) return false;
-    }
-    if (CURRENT_EMP_Q) {
-      const nom = (pick(e, NAME_CANDIDATES) || "").toLowerCase();
-      if (!nom.includes(CURRENT_EMP_Q)) return false;
-    }
     if (OVERLAPS_ONLY && !OVERLAP_ID_SET.has(v.id)) return false;
     return true;
   });
@@ -464,10 +388,10 @@ function renderList() {
     return;
   }
 
-  // Orden por fecha
+  // 2) Ordenar por start_date
   rows.sort((a,b) => new Date(a.start_date) - new Date(b.start_date));
 
-  // Agrupar por mes-año del start_date
+  // 3) Agrupar por mes-año del start_date
   const groups = new Map();
   for (const v of rows) {
     const { key, label } = monthYearKey(v.start_date);
@@ -475,7 +399,7 @@ function renderList() {
     groups.get(key).items.push(v);
   }
 
-  // Render
+  // 4) Render
   let html = "";
   for (const { label, items } of groups.values()) {
     html += `<h3 style="margin:16px 0 8px 0;">${escapeHtml(label)}:</h3>\n`;
@@ -488,27 +412,6 @@ function renderList() {
       const cls = (v.status || "").toLowerCase();
       const overlapMark = OVERLAP_ID_SET.has(v.id) ? ` <span class="badge overlap">Empalme</span>` : "";
 
-      const iw = isoWeek(new Date(v.start_date));
-      const wk = `Semana: ${iw.year}-W${String(iw.week).padStart(2,"0")}`;
-
-      const actionButtons = (() => {
-        if (v.status === "Aprobado") {
-          return `
-            <button onclick="unapprove('${v.id}')">↩️ Desaprobar</button>
-            <button onclick="reject('${v.id}')">❌ Rechazar</button>
-            <button onclick="editDate('${v.id}', '${v.start_date}', '${v.end_date}')">🗓 Editar</button>
-            <button onclick="deleteVac('${v.id}')">🗑</button>
-          `;
-        } else {
-          return `
-            <button onclick="authorize('${v.id}')">✅ Autorizar</button>
-            <button onclick="reject('${v.id}')">❌ Rechazar</button>
-            <button onclick="editDate('${v.id}', '${v.start_date}', '${v.end_date}')">🗓 Editar</button>
-            <button onclick="deleteVac('${v.id}')">🗑</button>
-          `;
-        }
-      })();
-
       html += `
         <div class="vac-item">
           <div>
@@ -517,11 +420,16 @@ function renderList() {
             (${escapeHtml(String(bodega))})${overlapMark}<br>
             ${depto ? `Depto: ${escapeHtml(depto)}<br>` : ""}
             ${escapeHtml(v.start_date)} → ${escapeHtml(v.end_date)}<br>
-            <small>${wk}</small><br>
             Estado: <span class="badge ${cls}">${escapeHtml(v.status)}</span>
           </div>
           <div>
-            ${actionButtons}
+            ${
+              v.status !== "Aprobado"
+                ? `<button onclick="authorize('${v.id}')">✅ Autorizar</button>`
+                : `<button onclick="reject('${v.id}')">❌ Rechazar</button>`
+            }
+            <button onclick="editDate('${v.id}', '${v.start_date}', '${v.end_date}')">🗓 Editar</button>
+            <button onclick="deleteVac('${v.id}')">🗑</button>
           </div>
         </div>
       `;
@@ -534,23 +442,29 @@ function renderList() {
 // ───────────────────────────────────────────────────────────────────────────────
 // Acciones por RPC (vacaciones)
 // ───────────────────────────────────────────────────────────────────────────────
-window.authorize = async (id) => {
-  if (!confirm("¿Autorizar esta solicitud?")) return;
-  const { data, error } = await supabase.rpc("vacation_requests_approve", { req_id: id });
-  if (error || data !== true) {
-    alert("No se pudo autorizar: " + (error?.message || "RPC devolvió falso"));
-    return;
-  }
-  await loadVacations();
-};
 
-window.unapprove = async (id) => {
-  if (!confirm("¿Regresar esta solicitud a 'Pendiente'?")) return;
-  const { data, error } = await supabase.rpc("vacation_requests_unapprove", { req_id: id });
-  if (error || data !== true) {
-    alert("No se pudo desaprobar: " + (error?.message || "RPC devolvió falso"));
-    return;
+// Autorizar con BYPASS (intenta force y cae a normal si no existe)
+window.authorize = async (id) => {
+  if (!confirm("¿Autorizar esta solicitud (forzando reglas si es necesario)?")) return;
+
+  // 1) Intentar RPC forzada si existe
+  let okForce = false;
+  try {
+    const { data, error } = await supabase.rpc("vacation_requests_approve_admin_force", { req_id: id });
+    if (!error && data === true) {
+      okForce = true;
+    }
+  } catch(_e) { /* puede no existir la función */ }
+
+  if (!okForce) {
+    // 2) Fallback a la autorización normal
+    const { data, error } = await supabase.rpc("vacation_requests_approve", { req_id: id });
+    if (error || data !== true) {
+      alert("No se pudo autorizar: " + (error?.message || "RPC devolvió falso"));
+      return;
+    }
   }
+
   await loadVacations();
 };
 
@@ -580,7 +494,11 @@ window.editDate = async (id, start, end) => {
 
 window.deleteVac = async (id) => {
   if (!confirm("¿Eliminar esta solicitud?")) return;
-  const { data, error } = await supabase.rpc("vacation_requests_delete_admin", { req_id: id });
+
+  const { data, error } = await supabase.rpc("vacation_requests_delete_admin", {
+    req_id: id
+  });
+
   if (error || data !== true) {
     console.error("Error al eliminar solicitud:", error);
     alert("No se pudo eliminar: " + (error?.message || "RPC devolvió falso"));
@@ -590,7 +508,7 @@ window.deleteVac = async (id) => {
 };
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Empleados: carga, alta, import/export, ordenamiento, búsqueda, alta directa
+// Empleados: carga, alta, import/export CSV, ordenamiento, editar/borrar, búsqueda
 // ───────────────────────────────────────────────────────────────────────────────
 function showEmpMsg(text, ok = false) {
   if (!empMsg) return;
@@ -598,9 +516,11 @@ function showEmpMsg(text, ok = false) {
   empMsg.className = "msg " + (ok ? "ok" : "err");
 }
 
+// Helpers orden empleados
 function normalizeText(v) {
   return (v == null ? "" : String(v)).trim().toLowerCase();
 }
+
 function compareText(a, b) {
   const aa = normalizeText(a);
   const bb = normalizeText(b);
@@ -608,6 +528,7 @@ function compareText(a, b) {
   if (aa > bb) return 1;
   return 0;
 }
+
 function compareDate(a, b) {
   if (!a && !b) return 0;
   if (!a) return -1;
@@ -618,13 +539,14 @@ function compareDate(a, b) {
   if (da > db) return 1;
   return 0;
 }
+
 function getEmpSortLabel(field, label) {
   if (EMP_SORT_FIELD !== field) return escapeHtml(label);
   const arrow = EMP_SORT_DIR === "asc" ? "▲" : "▼";
   return `${escapeHtml(label)} ${arrow}`;
 }
 
-// Búsqueda por nombre (empleados)
+// Búsqueda por nombre (debounce)
 if (empSearch) {
   let t = null;
   empSearch.addEventListener("input", () => {
@@ -636,7 +558,7 @@ if (empSearch) {
   });
 }
 
-// Lee empleados
+// Lee empleados desde la tabla employees
 async function loadEmployeesAdmin() {
   if (!empList) return;
   empList.innerHTML = "<p>Cargando empleados…</p>";
@@ -665,22 +587,36 @@ function renderEmployeesAdmin() {
     return;
   }
 
+  // filtro por nombre
   let data = EMP_DATA;
   if (EMP_FILTER_TEXT) {
     data = EMP_DATA.filter(e => (e.nombre || "").toLowerCase().includes(EMP_FILTER_TEXT));
   }
 
+  // ordenar
   data = [...data];
   data.sort((a, b) => {
     let cmp = 0;
     switch (EMP_SORT_FIELD) {
-      case "bodega":       cmp = compareText(a.bodega, b.bodega); break;
-      case "departamento": cmp = compareText(a.departamento, b.departamento); break;
-      case "localizacion": cmp = compareText(a.localizacion, b.localizacion); break;
-      case "rol":          cmp = compareText(a.rol, b.rol); break;
-      case "fecha_ingreso":cmp = compareDate(a.fecha_ingreso, b.fecha_ingreso); break;
+      case "bodega":
+        cmp = compareText(a.bodega, b.bodega);
+        break;
+      case "departamento":
+        cmp = compareText(a.departamento, b.departamento);
+        break;
+      case "localizacion":
+        cmp = compareText(a.localizacion, b.localizacion);
+        break;
+      case "rol":
+        cmp = compareText(a.rol, b.rol);
+        break;
+      case "fecha_ingreso":
+        cmp = compareDate(a.fecha_ingreso, b.fecha_ingreso);
+        break;
       case "nombre":
-      default:             cmp = compareText(a.nombre, b.nombre); break;
+      default:
+        cmp = compareText(a.nombre, b.nombre);
+        break;
     }
     return EMP_SORT_DIR === "asc" ? cmp : -cmp;
   });
@@ -740,7 +676,7 @@ function renderEmployeesAdmin() {
   });
 }
 
-// Alta de empleado
+// Alta de empleado desde el formulario (RPC admin)
 if (empForm) {
   empForm.addEventListener("submit", async (ev) => {
     ev.preventDefault();
@@ -751,7 +687,7 @@ if (empForm) {
     const depto  = (empDepto?.value || "").trim();
     const loc    = (empLoc?.value || "").trim();
     const rol    = (empRol?.value || "").trim().toLowerCase();
-    const ing    = (empIng?.value || "").trim();
+    const ing    = (empIng?.value || "").trim(); // YYYY-MM-DD
 
     if (!nombre || !ing) {
       showEmpMsg("Nombre y fecha de ingreso son obligatorios.", false);
@@ -774,12 +710,12 @@ if (empForm) {
     }
 
     showEmpMsg("Empleado dado de alta correctamente.", true);
-    empNombre.value = "";
-    empBod.value = "";
-    empDepto.value = "";
-    empLoc.value = "";
-    empRol.value = "";
-    empIng.value = "";
+    if (empNombre) empNombre.value = "";
+    if (empBod)    empBod.value    = "";
+    if (empDepto)  empDepto.value  = "";
+    if (empLoc)    empLoc.value    = "";
+    if (empRol)    empRol.value    = "";
+    if (empIng)    empIng.value    = "";
 
     await loadEmployeesAdmin();
   });
@@ -788,17 +724,32 @@ if (empForm) {
 // Editar empleado
 window.empEdit = async (id) => {
   const emp = (EMP_DATA || []).find(e => e.id === id);
-  if (!emp) { alert("No se encontró el empleado."); return; }
+  if (!emp) {
+    alert("No se encontró el empleado.");
+    return;
+  }
 
-  const nombre = prompt("Nombre:", emp.nombre || ""); if (nombre === null) return;
-  const bodega = prompt("Bodega:", emp.bodega || ""); if (bodega === null) return;
-  const depto  = prompt("Departamento:", emp.departamento || ""); if (depto === null) return;
-  const loc    = prompt("Localización:", emp.localizacion || ""); if (loc === null) return;
-  const rol    = prompt("Rol:", emp.rol || ""); if (rol === null) return;
+  const nombre = prompt("Nombre:", emp.nombre || "");
+  if (nombre === null) return;
+
+  const bodega = prompt("Bodega:", emp.bodega || "");
+  if (bodega === null) return;
+
+  const depto = prompt("Departamento:", emp.departamento || "");
+  if (depto === null) return;
+
+  const loc = prompt("Localización:", emp.localizacion || "");
+  if (loc === null) return;
+
+  const rol = prompt("Rol:", emp.rol || "");
+  if (rol === null) return;
 
   const fiDefault = emp.fecha_ingreso ? String(emp.fecha_ingreso).slice(0,10) : "";
   const fi = prompt("Fecha de ingreso (YYYY-MM-DD):", fiDefault);
-  if (fi === null || !fi.trim()) { alert("La fecha de ingreso es obligatoria."); return; }
+  if (fi === null || !fi.trim()) {
+    alert("La fecha de ingreso es obligatoria.");
+    return;
+  }
 
   const { data, error } = await supabase.rpc("employees_update_admin", {
     p_id:            id,
@@ -806,7 +757,7 @@ window.empEdit = async (id) => {
     p_bodega:        bodega.trim() || null,
     p_departamento:  depto.trim()  || null,
     p_localizacion:  loc.trim()    || null,
-    p_rol:           (rol||"").trim().toLowerCase() || null,
+    p_rol:           rol.trim().toLowerCase() || null,
     p_fecha_ingreso: fi.trim()
   });
 
@@ -824,9 +775,13 @@ window.empEdit = async (id) => {
 window.empDelete = async (id) => {
   const emp = (EMP_DATA || []).find(e => e.id === id);
   const nombre = emp?.nombre || "(sin nombre)";
+
   if (!confirm(`¿Eliminar al empleado "${nombre}"?`)) return;
 
-  const { data, error } = await supabase.rpc("employees_delete_admin", { p_id: id });
+  const { data, error } = await supabase.rpc("employees_delete_admin", {
+    p_id: id
+  });
+
   if (error || data !== true) {
     console.error("Error al borrar empleado:", error);
     alert("No se pudo borrar el empleado: " + (error?.message || "RPC devolvió falso"));
@@ -837,15 +792,17 @@ window.empDelete = async (id) => {
   showEmpMsg("Empleado eliminado correctamente.", true);
 };
 
-// Exportar CSV
+// Exportar CSV de empleados
 if (empExportBtn) {
   empExportBtn.addEventListener("click", () => {
     if (!EMP_DATA || EMP_DATA.length === 0) {
       showEmpMsg("No hay empleados para exportar.", false);
       return;
     }
+
     const header = ["id","nombre","bodega","departamento","localizacion","rol","fecha_ingreso"];
     const lines = [header.join(",")];
+
     for (const e of EMP_DATA) {
       const row = [
         e.id || "",
@@ -855,9 +812,12 @@ if (empExportBtn) {
         e.localizacion || "",
         e.rol || "",
         e.fecha_ingreso ? String(e.fecha_ingreso).slice(0,10) : ""
-      ].map(v => `"${String(v).replace(/"/g, '""')}"`);
+      ].map(v =>
+        `"${String(v).replace(/"/g, '""')}"`
+      );
       lines.push(row.join(","));
     }
+
     const csv = lines.join("\r\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url  = URL.createObjectURL(blob);
@@ -868,30 +828,36 @@ if (empExportBtn) {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+
     showEmpMsg("Archivo CSV generado.", true);
   });
 }
 
-// Importar CSV
+// Importar CSV de empleados (RPC admin)
 if (empImportInput) {
   empImportInput.addEventListener("change", async (ev) => {
     const file = ev.target.files?.[0];
     if (!file) return;
     showEmpMsg("Leyendo archivo CSV…");
+
     try {
       const text = await file.text();
       const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l !== "");
-      if (lines.length <= 1) { showEmpMsg("El archivo CSV no tiene registros.", false); return; }
+      if (lines.length <= 1) {
+        showEmpMsg("El archivo CSV no tiene registros.", false);
+        return;
+      }
 
       const header = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g,"").toLowerCase());
       const idx = (name) => header.indexOf(name);
-      const idxId  = idx("id");
-      const idxNom = idx("nombre");
-      const idxBod = idx("bodega");
-      const idxDep = idx("departamento");
-      const idxLoc = idx("localizacion");
-      const idxRol = idx("rol");
-      const idxIng = idx("fecha_ingreso");
+
+      const idxId    = idx("id");
+      const idxNom   = idx("nombre");
+      const idxBod   = idx("bodega");
+      const idxDep   = idx("departamento");
+      const idxLoc   = idx("localizacion");
+      const idxRol   = idx("rol");
+      const idxIng   = idx("fecha_ingreso");
 
       if (idxNom === -1 || idxIng === -1) {
         showEmpMsg("El CSV debe tener al menos columnas 'nombre' y 'fecha_ingreso'.", false);
@@ -899,27 +865,48 @@ if (empImportInput) {
       }
 
       const rowsToInsert = [];
+
       for (let i = 1; i < lines.length; i++) {
-        const raw = lines[i]; if (!raw) continue;
+        const raw = lines[i];
+        if (!raw) continue;
+
         const cols = raw.split(",").map(c => c.replace(/^"|"$/g,""));
+
         const nombre = cols[idxNom] || "";
         const ingreso = cols[idxIng] || "";
+
         if (!nombre || !ingreso) continue;
 
-        const rec = { nombre: nombre.trim(), fecha_ingreso: ingreso.trim() };
+        const rec = {
+          nombre: nombre.trim(),
+          fecha_ingreso: ingreso.trim()
+        };
+
         if (idxBod !== -1) rec.bodega       = (cols[idxBod] || "").trim() || null;
         if (idxDep !== -1) rec.departamento = (cols[idxDep] || "").trim() || null;
         if (idxLoc !== -1) rec.localizacion = (cols[idxLoc] || "").trim() || null;
         if (idxRol !== -1) rec.rol          = (cols[idxRol] || "").trim().toLowerCase() || null;
         if (idxId  !== -1 && cols[idxId])   rec.id           = cols[idxId].trim();
+
         rowsToInsert.push(rec);
       }
 
-      if (rowsToInsert.length === 0) { showEmpMsg("No se encontraron filas válidas en el CSV.", false); return; }
+      if (rowsToInsert.length === 0) {
+        showEmpMsg("No se encontraron filas válidas en el CSV.", false);
+        return;
+      }
 
       showEmpMsg(`Importando ${rowsToInsert.length} empleados…`);
-      const { data, error } = await supabase.rpc("employees_import_admin", { p_rows: rowsToInsert });
-      if (error) { console.error("Error al importar empleados:", error); showEmpMsg("Error al importar empleados: " + (error.message || ""), false); return; }
+
+      const { data, error } = await supabase.rpc("employees_import_admin", {
+        p_rows: rowsToInsert
+      });
+
+      if (error) {
+        console.error("Error al importar empleados:", error);
+        showEmpMsg("Error al importar empleados: " + (error.message || ""), false);
+        return;
+      }
 
       const inserted = data ?? rowsToInsert.length;
       showEmpMsg(`Importación completada (${inserted} empleados).`, true);
@@ -938,7 +925,7 @@ if (empRefreshBtn) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Alta directa de vacaciones
+/** Alta directa de vacaciones: helpers */
 // ───────────────────────────────────────────────────────────────────────────────
 function showVacMsg(text, ok=false) {
   if (!vacFormMsg) return;
@@ -989,14 +976,14 @@ document.querySelectorAll("button.preset")?.forEach(btn=>{
     const mondayOffset = (day===0? -6 : (1-day));
     let base = new Date(today); base.setDate(today.getDate()+mondayOffset);
     if (kind==="next-week") base.setDate(base.getDate()+7);
-    const start = new Date(base);
+    const start = new Date(base); // lunes
     const end = new Date(base); end.setDate(end.getDate()+5); // sábado
     vacStart.value = start.toISOString().slice(0,10);
     vacEnd.value   = end.toISOString().slice(0,10);
   });
 });
 
-// Acción rápida desde tabla de empleados
+// Acción rápida desde la tabla de empleados
 window.empQuickVacation = (id, nombre) => {
   if (!vacEmpId || !vacEmpSearch) return;
   vacEmpId.value = id;
@@ -1005,7 +992,7 @@ window.empQuickVacation = (id, nombre) => {
   showVacMsg(`Empleado seleccionado: ${nombre}`, true);
 };
 
-// Crear pendiente
+// Crear pendiente (BYPASS si está disponible)
 if (vacCreateBtn) {
   vacCreateBtn.addEventListener("click", async ()=>{
     showVacMsg("");
@@ -1014,15 +1001,32 @@ if (vacCreateBtn) {
     const e = (vacEnd?.value||"").trim();
     if (!empId || !s || !e) { showVacMsg("Falta empleado, inicio o fin.", false); return; }
 
-    const { data, error } = await supabase.rpc("vacation_requests_create", { emp_id: empId, s, e });
-    if (error) { showVacMsg("Error al crear: "+(error.message||""), false); return; }
+    // 1) Intentar bypass
+    let createdId = null;
+    try {
+      const { data, error } = await supabase.rpc("vacation_requests_create_admin_force", {
+        emp_id: empId, s, e, auto_approve: false
+      });
+      if (!error && data) {
+        createdId = data;
+      }
+    } catch(_e){ /* puede no existir */ }
+
+    if (!createdId) {
+      // 2) Fallback a create normal
+      const { data, error } = await supabase.rpc("vacation_requests_create", {
+        emp_id: empId, s, e
+      });
+      if (error || !data) { showVacMsg("Error al crear: "+(error?.message||"RPC devolvió nulo"), false); return; }
+      createdId = data;
+    }
 
     showVacMsg("Solicitud creada (Pendiente).", true);
     await loadVacations();
   });
 }
 
-// Crear y autorizar
+// Crear y autorizar (BYPASS end-to-end si está disponible)
 if (vacCreateApproveBtn) {
   vacCreateApproveBtn.addEventListener("click", async ()=>{
     showVacMsg("");
@@ -1031,13 +1035,46 @@ if (vacCreateApproveBtn) {
     const e = (vacEnd?.value||"").trim();
     if (!empId || !s || !e) { showVacMsg("Falta empleado, inicio o fin.", false); return; }
 
-    const { data: newId, error: err1 } = await supabase.rpc("vacation_requests_create", { emp_id: empId, s, e });
-    if (err1 || !newId) { showVacMsg("Error al crear: "+(err1?.message||"RPC devolvió nulo"), false); return; }
+    // 1) Intentar create + approve en un paso con bypass
+    let createdId = null, usedBypass = false;
+    try {
+      const { data, error } = await supabase.rpc("vacation_requests_create_admin_force", {
+        emp_id: empId, s, e, auto_approve: true
+      });
+      if (!error && data) {
+        createdId = data;
+        usedBypass = true;
+      }
+    } catch(_e){ /* puede no existir */ }
 
-    const { data: ok, error: err2 } = await supabase.rpc("vacation_requests_approve", { req_id: newId });
-    if (err2 || ok!==true) { showVacMsg("Creado, pero no se pudo autorizar: "+(err2?.message||"RPC devolvió falso"), false); await loadVacations(); return; }
+    if (!createdId) {
+      // 2) Fallback a create normal
+      const { data: newId, error: err1 } = await supabase.rpc("vacation_requests_create", {
+        emp_id: empId, s, e
+      });
+      if (err1 || !newId) { showVacMsg("Error al crear: "+(err1?.message||"RPC devolvió nulo"), false); return; }
 
-    showVacMsg("Solicitud creada y autorizada.", true);
-    await loadVacations();
+      // 3) Intentar aprobar con bypass; si no existe, aprobar normal
+      let approved = false;
+      try {
+        const { data: okForce, error: errF } = await supabase.rpc("vacation_requests_approve_admin_force", { req_id: newId });
+        if (!errF && okForce === true) approved = true;
+      } catch(_e){ /* puede no existir */ }
+
+      if (!approved) {
+        const { data: ok, error: err2 } = await supabase.rpc("vacation_requests_approve", { req_id: newId });
+        if (err2 || ok !== true) { showVacMsg("Creado, pero no se pudo autorizar: "+(err2?.message||"RPC devolvió falso"), false); await loadVacations(); return; }
+      }
+
+      showVacMsg("Solicitud creada y autorizada.", true);
+      await loadVacations();
+      return;
+    }
+
+    // Si se usó bypass one-shot:
+    if (usedBypass) {
+      showVacMsg("Solicitud creada y autorizada (forzada).", true);
+      await loadVacations();
+    }
   });
 }
