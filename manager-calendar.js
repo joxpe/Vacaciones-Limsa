@@ -24,19 +24,23 @@ function initials(nombre){
 function getSelectedValues(selectEl){
   return Array.from(selectEl.selectedOptions || []).map(o => o.value).filter(Boolean);
 }
+function normalizeBodegaForUI(b){
+  const val = (b ?? '').trim();
+  return val || '(Sin bodega)';
+}
 
-// Estado actual del filtro/mes (bodegas = arreglo)
+// Estado actual (bodegas = arreglo multiselección)
 let CUR = { month: new Date(), bodegas: [], depto: '', loc: '' };
 
 // Feriados 2026
 let HOLIDAYS_2026 = new Set();
 
-// Cache de empleados y mapas auxiliares
+// Cache de empleados y listas
 let EMP_ROWS_CACHE = [];           // employees_public_v2()
 let LOC_BY_ID = {};                // employee_id -> localizacion
-let BODS_ALL = [];                 // lista total de bodegas (normalizadas)
-let BODS_BY_LOC = new Map();       // localizacion -> Set(bodegas)
-let LOC_ALL = [];                  // lista de localizaciones
+let BODS_ALL = [];                 // todas las bodegas normalizadas
+let DEPTOS_ALL = [];               // todos los deptos
+let LOC_ALL = [];                  // todas las localizaciones
 
 async function loadHolidays(){
   try {
@@ -48,11 +52,6 @@ async function loadHolidays(){
   }
 }
 
-function normalizeBodegaForUI(b){
-  const val = (b ?? '').trim();
-  return val || '(Sin bodega)';
-}
-
 function buildIndexesFromEmployees(rows){
   const cmp = new Intl.Collator('es-MX').compare;
 
@@ -60,7 +59,6 @@ function buildIndexesFromEmployees(rows){
   const deptosSet  = new Set();
   const locsSet    = new Set();
 
-  BODS_BY_LOC = new Map();
   LOC_BY_ID = {};
 
   for (const r of rows) {
@@ -70,43 +68,55 @@ function buildIndexesFromEmployees(rows){
 
     bodegasSet.add(b);
     if (d) deptosSet.add(d);
-    if (lc) {
-      locsSet.add(lc);
-      if (!BODS_BY_LOC.has(lc)) BODS_BY_LOC.set(lc, new Set());
-      BODS_BY_LOC.get(lc).add(b);
-    }
+    if (lc) locsSet.add(lc);
 
     LOC_BY_ID[r.id] = lc;
   }
 
-  BODS_ALL = Array.from(bodegasSet).sort(cmp);
-  LOC_ALL  = Array.from(locsSet).sort(cmp);
+  BODS_ALL   = Array.from(bodegasSet).sort(cmp);
+  DEPTOS_ALL = Array.from(deptosSet).sort(cmp);
+  LOC_ALL    = Array.from(locsSet).sort(cmp);
 
-  // Rellenar selects
-  // Bodega multiselect (todas por defecto; se filtrará dinámicamente al cambiar localización)
-  $bod.innerHTML = BODS_ALL.map(b=>`<option value="${b}">${b}</option>`).join('');
-  // Departamento simple
-  const deptosArr = Array.from(deptosSet).sort(cmp);
-  $dep.innerHTML = `<option value="">Todos</option>` + deptosArr.map(d=>`<option value="${d}">${d}</option>`).join('');
-  // Localización simple
+  // Llenar selects estáticos (bodegas se reconstruye dinámicamente por loc/depto)
+  $dep.innerHTML = `<option value="">Todos</option>` + DEPTOS_ALL.map(d=>`<option value="${d}">${d}</option>`).join('');
   $loc.innerHTML = `<option value="">Todas</option>` + LOC_ALL.map(l=>`<option value="${l}">${l}</option>`).join('');
+
+  // Inicialmente, mostrar todas las bodegas (sin filtros aplicados aún)
+  $bod.innerHTML = BODS_ALL.map(b=>`<option value="${b}">${b}</option>`).join('');
 }
 
 /**
- * Refresca las opciones visibles del multiselect de bodegas según la localización seleccionada.
- * - Si CUR.loc está vacío: muestra TODAS las bodegas (BODS_ALL).
- * - Si CUR.loc tiene valor: muestra SOLO bodegas del Set BODS_BY_LOC[loc].
- * Mantiene la selección actual dentro del subconjunto visible (intersección).
+ * Calcula las bodegas visibles con base en:
+ *  - CUR.loc (si tiene valor, solo empleados de esa localización)
+ *  - CUR.depto (si tiene valor, solo empleados de ese departamento)
+ * Devuelve arreglo ordenado y normalizado para el UI.
  */
-function refreshBodegaOptionsByLoc(){
-  const currentSel = new Set(CUR.bodegas);        // selección actual
+function computeVisibleBodegasByLocDept(){
   const cmp = new Intl.Collator('es-MX').compare;
+  const set = new Set();
 
-  let visibleBods = BODS_ALL;
-  if (CUR.loc) {
-    const set = BODS_BY_LOC.get(CUR.loc) || new Set();
-    visibleBods = Array.from(set).sort(cmp);
+  for (const r of EMP_ROWS_CACHE) {
+    const lc = (r.localizacion ?? '').trim();
+    const d  = (r.departamento ?? '').trim();
+    if (CUR.loc && lc !== CUR.loc) continue;
+    if (CUR.depto && d  !== CUR.depto) continue;
+    set.add(normalizeBodegaForUI(r.bodega));
   }
+
+  // Si no hay filas que coincidan con loc/depto actuales, mostrar TODAS como fallback útil
+  // (opcional: si prefieres “ninguna”, elimina el fallback)
+  const arr = set.size > 0 ? Array.from(set).sort(cmp) : [...BODS_ALL];
+  return arr;
+}
+
+/**
+ * Reconstruye las opciones visibles del multiselect de bodegas
+ * según la localización y/o departamento seleccionados.
+ * Mantiene la selección válida (intersección); deselecciona lo que ya no aplique.
+ */
+function refreshBodegaOptionsByLocDept(){
+  const visibleBods = computeVisibleBodegasByLocDept();
+  const currentSel  = new Set(CUR.bodegas);
 
   // Reconstruir opciones
   const html = visibleBods.map(b => {
@@ -115,19 +125,16 @@ function refreshBodegaOptionsByLoc(){
   }).join('');
   $bod.innerHTML = html;
 
-  // Ajustar la selección efectiva a la intersección
+  // Ajustar selección efectiva a la intersección
   CUR.bodegas = visibleBods.filter(b => currentSel.has(b));
 }
 
-/**
- * Carga empleados (para filtros) y construye índices.
- */
 async function loadFilters(){
   const rpc = await supabase.rpc('employees_public_v2');
   if (rpc.error) { showMsg('No pude cargar filtros: ' + rpc.error.message, false); return; }
   EMP_ROWS_CACHE = rpc.data || [];
-
   buildIndexesFromEmployees(EMP_ROWS_CACHE);
+  refreshBodegaOptionsByLocDept();
 }
 
 function buildCalendarGrid(monthDate){
@@ -190,7 +197,8 @@ async function loadMonth(){
   const first = firstDayOfMonth(CUR.month);
   const last  = lastDayOfMonth(CUR.month);
 
-  // Consulta sin filtro de bodega en servidor (manejamos multi-bodega/loc en cliente)
+  // Filtramos por departamento en servidor (mejor performance),
+  // y aplicamos Localización/Bodegas en cliente (multi e interdependencias).
   const { data, error } = await supabase.rpc('mgr_calendar_month', {
     p_bodega: null,
     p_depto:  CUR.depto || null,
@@ -202,12 +210,12 @@ async function loadMonth(){
   const selBods = new Set(CUR.bodegas);
 
   const filtered = (data || []).filter(r => {
-    // LOCALIZACIÓN
+    // LOCALIZACIÓN (cliente)
     if (CUR.loc) {
       const lc = (LOC_BY_ID[r.employee_id] ?? '').trim();
       if (lc !== CUR.loc) return false;
     }
-    // BODEGA (multi — dependiente de la loc visible ya en el combo)
+    // BODEGA (cliente: multiselección; si no hay selección, significa "todas las visibles")
     if (selBods.size > 0) {
       const b = normalizeBodegaForUI(r.bodega);
       if (!selBods.has(b)) return false;
@@ -253,13 +261,17 @@ async function loadMonth(){
 
 // Eventos
 $bod.addEventListener('change', () => { CUR.bodegas = getSelectedValues($bod); loadMonth(); });
-$dep.addEventListener('change', () => { CUR.depto   = $dep.value || '';         loadMonth(); });
+$dep.addEventListener('change', () => {
+  CUR.depto = $dep.value || '';
+  // Cambia el conjunto visible de bodegas por depto (y por loc si aplica)
+  refreshBodegaOptionsByLocDept();
+  CUR.bodegas = getSelectedValues($bod);
+  loadMonth();
+});
 $loc.addEventListener('change', () => {
   CUR.loc = $loc.value || '';
-  // Al cambiar localización, se filtran las bodegas visibles
-  refreshBodegaOptionsByLoc();
-  // Si no queda ninguna bodega seleccionada (tras el filtro), no pasa nada:
-  // significa "todas las visibles".
+  // Cambia el conjunto visible de bodegas por loc (y por depto si aplica)
+  refreshBodegaOptionsByLocDept();
   CUR.bodegas = getSelectedValues($bod);
   loadMonth();
 });
@@ -274,10 +286,8 @@ $next.addEventListener('click', () => { CUR.month = new Date(CUR.month.getFullYe
 // Inicio
 (async function init(){
   CUR.month = new Date();
-  await loadFilters();    // llena combos y construye BODS_BY_LOC
+  await loadFilters();    // llena combos y construye listas base
   await loadHolidays();
-  // Asegurar que bodegas visibles correspondan a la loc inicial (vacía = todas)
-  refreshBodegaOptionsByLoc();
   buildCalendarGrid(CUR.month);
   await loadMonth();
 })();
