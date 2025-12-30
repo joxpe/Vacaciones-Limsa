@@ -77,6 +77,17 @@ function yearsMonthsLabel(fromISO, toDate = new Date()){
   return `${years}.${String(months).padStart(2, '0')}`;
 }
 
+// === Helpers de fechas para el autocompletado del FIN ===
+function lastDayOfMonth(date){
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+}
+function toISO(date){
+  const y = date.getFullYear();
+  const m = String(date.getMonth()+1).padStart(2,'0');
+  const d = String(date.getDate()).padStart(2,'0');
+  return `${y}-${m}-${d}`;
+}
+
 // ==== Render helpers ====
 function renderEmployees(list){
   if(!list || list.length === 0){
@@ -324,6 +335,38 @@ $emp.addEventListener('change', async (e) => {
   } else {
     CURRENT_EMP = null;
     $submit.disabled = false;
+  }
+});
+
+// ===== Mejora: al elegir INICIO, proponer FIN = INICIO + 3 días, sin salir del mes =====
+$start.addEventListener('change', () => {
+  const s = $start.value; // YYYY-MM-DD
+  if(!s) return;
+
+  const [yy, mm, dd] = s.split('-').map(Number);
+  const startDate = new Date(yy, mm-1, dd);
+
+  // candidato = +3 días
+  const candidate = new Date(startDate);
+  candidate.setDate(candidate.getDate() + 3);
+
+  // clamp al último día del mismo mes si se cruza
+  if (candidate.getMonth() !== startDate.getMonth() || candidate.getFullYear() !== startDate.getFullYear()) {
+    const eom = lastDayOfMonth(startDate);
+    candidate.setFullYear(eom.getFullYear(), eom.getMonth(), eom.getDate());
+  }
+
+  // Asegurar fin >= inicio y actualizar min del fin
+  const startISO = toISO(startDate);
+  const endISO   = toISO(candidate);
+  $end.min = startISO;
+  $end.value = endISO;
+
+  // Intentar abrir el datepicker del fin posicionado en esa fecha
+  if (typeof $end.showPicker === 'function') {
+    try { $end.showPicker(); } catch(_) {}
+  } else {
+    $end.focus();
   }
 });
 
