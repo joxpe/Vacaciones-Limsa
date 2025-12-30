@@ -28,6 +28,14 @@ function normalizeBodegaForUI(b){
   const val = (b ?? '').trim();
   return val || '(Sin bodega)';
 }
+// Parse seguro de "YYYY-MM-DD" a Date local (evita desfases por zona horaria)
+function isoToLocalDate(iso){
+  const [yy,mm,dd] = iso.split('-').map(Number);
+  return new Date(yy, mm-1, dd);
+}
+function isSundayISO(iso){
+  return isoToLocalDate(iso).getDay() === 0; // 0 = Domingo
+}
 
 // Estado actual (bodegas = arreglo multiselección)
 let CUR = { month: new Date(), bodegas: [], depto: '', loc: '' };
@@ -86,40 +94,9 @@ function buildIndexesFromEmployees(rows){
 }
 
 /**
- * Si LOC_ALL quedó vacío (o casi vacío), intentamos un fallback directo
- * contra la tabla employees para obtener localizaciones distintas (no nulas/ni vacías).
- */
-async function ensureLocalizacionesFallback(){
-  if (LOC_ALL.length > 0) return;
-
-  try {
-    const { data, error } = await supabase
-      .from('employees')
-      .select('localizacion')
-      .not('localizacion','is', null)
-      .neq('localizacion','')
-      .order('localizacion', { ascending: true });
-
-    if (!error) {
-      const cmp = new Intl.Collator('es-MX').compare;
-      const uniq = Array.from(new Set((data||[]).map(r => (r.localizacion||'').trim()).filter(Boolean))).sort(cmp);
-      if (uniq.length > 0) {
-        LOC_ALL = uniq;
-        $loc.innerHTML = `<option value="">Todas</option>` + LOC_ALL.map(l=>`<option value="${l}">${l}</option>`).join('');
-      }
-    } else {
-      console.warn('Fallback localizaciones falló:', error.message);
-    }
-  } catch (e) {
-    console.warn('Error fallback localizaciones:', e);
-  }
-}
-
-/**
  * Calcula las bodegas visibles con base en:
  *  - CUR.loc (si tiene valor, solo empleados de esa localización)
  *  - CUR.depto (si tiene valor, solo empleados de ese departamento)
- * Devuelve arreglo ordenado y normalizado para el UI.
  */
 function computeVisibleBodegasByLocDept(){
   const cmp = new Intl.Collator('es-MX').compare;
@@ -132,29 +109,22 @@ function computeVisibleBodegasByLocDept(){
     if (CUR.depto && d  !== CUR.depto) continue;
     set.add(normalizeBodegaForUI(r.bodega));
   }
-
-  // Fallback: si no hay bodegas que cumplan, mostrar TODAS
-  const arr = set.size > 0 ? Array.from(set).sort(cmp) : [...BODS_ALL];
-  return arr;
+  return set.size > 0 ? Array.from(set).sort(cmp) : [...BODS_ALL];
 }
 
 /**
- * Reconstruye las opciones visibles del multiselect de bodegas
- * según la Localización y/o Departamento seleccionados.
- * Mantiene la selección válida (intersección); deselecciona lo que ya no aplique.
+ * Reconstruye el multiselect de bodegas con base en Localización/Departamento.
  */
 function refreshBodegaOptionsByLocDept(){
   const visibleBods = computeVisibleBodegasByLocDept();
   const currentSel  = new Set(CUR.bodegas);
 
-  // Reconstruir opciones
   const html = visibleBods.map(b => {
     const sel = currentSel.has(b) ? ' selected' : '';
     return `<option value="${b}"${sel}>${b}</option>`;
   }).join('');
   $bod.innerHTML = html;
 
-  // Ajustar selección efectiva a la intersección
   CUR.bodegas = visibleBods.filter(b => currentSel.has(b));
 }
 
@@ -163,10 +133,6 @@ async function loadFilters(){
   if (rpc.error) { showMsg('No pude cargar filtros: ' + rpc.error.message, false); return; }
   EMP_ROWS_CACHE = rpc.data || [];
   buildIndexesFromEmployees(EMP_ROWS_CACHE);
-
-  // 🔁 Si no hay localizaciones, intenta fallback directo a employees
-  await ensureLocalizacionesFallback();
-
   refreshBodegaOptionsByLocDept();
 }
 
@@ -245,7 +211,11 @@ async function loadMonth(){
 
   const selBods = new Set(CUR.bodegas);
 
+  // ⛔️ Excluir DOMINGOS de forma robusta (parse local seguro)
   const filtered = (data || []).filter(r => {
+    // Domingo fuera
+    if (isSundayISO(r.day)) return false;
+
     // LOCALIZACIÓN
     if (CUR.loc) {
       const lc = (LOC_BY_ID[r.employee_id] ?? '').trim();
@@ -256,8 +226,6 @@ async function loadMonth(){
       const b = normalizeBodegaForUI(r.bodega);
       if (!selBods.has(b)) return false;
     }
-    // Excluir DOMINGOS (0=Domingo)
-    if (new Date(r.day).getDay() === 0) return false;
     return true;
   });
 
@@ -301,14 +269,12 @@ async function loadMonth(){
 $bod.addEventListener('change', () => { CUR.bodegas = getSelectedValues($bod); loadMonth(); });
 $dep.addEventListener('change', () => {
   CUR.depto = $dep.value || '';
-  // Recalcular opciones de Bodega por Depto (y por Loc si aplica)
   refreshBodegaOptionsByLocDept();
   CUR.bodegas = getSelectedValues($bod);
   loadMonth();
 });
 $loc.addEventListener('change', () => {
   CUR.loc = $loc.value || '';
-  // Recalcular opciones de Bodega por Loc (y por Depto si aplica)
   refreshBodegaOptionsByLocDept();
   CUR.bodegas = getSelectedValues($bod);
   loadMonth();
