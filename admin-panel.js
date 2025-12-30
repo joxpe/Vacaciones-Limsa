@@ -1,6 +1,3 @@
-Aquí tienes **`admin-panel.js` completo** (incluye el filtro de Localización y mejora: semanas **contextuales** al mes seleccionado; al cambiar Mes se reconstruye el combo de Semana).
-
-```javascript
 // admin-panel.js (vacaciones + empleados con orden, alta, importar, editar y borrar)
 // RPCs vacaciones (SECURITY DEFINER):
 //   vacation_requests_delete_admin(req_id uuid) -> boolean
@@ -1207,4 +1204,3 @@ if (vacCreateApproveBtn) {
     }
   });
 }
-```
