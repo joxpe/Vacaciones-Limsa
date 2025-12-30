@@ -1,3 +1,6 @@
+Aquí tienes **`admin-panel.js` completo** (incluye el filtro de Localización y mejora: semanas **contextuales** al mes seleccionado; al cambiar Mes se reconstruye el combo de Semana).
+
+```javascript
 // admin-panel.js (vacaciones + empleados con orden, alta, importar, editar y borrar)
 // RPCs vacaciones (SECURITY DEFINER):
 //   vacation_requests_delete_admin(req_id uuid) -> boolean
@@ -36,9 +39,8 @@ const monthYearKey = (isoDate) => {
 function isoWeekNumber(dateStr) {
   const d = new Date(dateStr);
   const target = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  // jueves de la semana actual
-  const dayNr = (target.getUTCDay() + 6) % 7;
-  target.setUTCDate(target.getUTCDate() - dayNr + 3);
+  const dayNr = (target.getUTCDay() + 6) % 7; // 0..6
+  target.setUTCDate(target.getUTCDate() - dayNr + 3); // jueves
   const firstThursday = new Date(Date.UTC(target.getUTCFullYear(),0,4));
   const dayDiff = (target - firstThursday) / 86400000;
   return 1 + Math.floor(dayDiff / 7);
@@ -222,12 +224,17 @@ if (fStatusSel) {
   });
 }
 
-// Filtro Mes
+// Filtro Mes (⚠️ ahora reconstruye Semanas al vuelo)
 if (fMonthSel) {
   fMonthSel.addEventListener("change", () => {
     CURRENT_MONTH = fMonthSel.value || "";
-    // Al cambiar mes, puedes querer recalcular semanas disponibles, pero
-    // aquí dejamos semanas globales (de todas las solicitudes).
+    // Recalcular combo de semanas para el mes elegido
+    populateFilters();  // reconstruye semanas contextuales
+    // Si la semana previa ya no aplica, limpiar
+    if (fWeekSel && fWeekSel.value && !Array.from(fWeekSel.options).some(o => o.value === CURRENT_WEEK)) {
+      CURRENT_WEEK = "";
+      fWeekSel.value = "";
+    }
     computeOverlaps();
     renderList();
   });
@@ -279,8 +286,7 @@ async function loadVacations() {
   VAC_DATA = vacs || [];
   if (VAC_DATA.length === 0) {
     vacList.innerHTML = "<p>No hay solicitudes registradas.</p>";
-    // Aún así vaciamos combos
-    populateFilters();
+    populateFilters(); // aún así, inicializa filtros
     return;
   }
 
@@ -316,14 +322,18 @@ function populateFilters() {
   const rolesSet   = new Set();
   const locsSet    = new Set();
   const monthsSet  = new Map(); // key->label
-  const weeksSet   = new Set(); // números ISO
+  const weeksSet   = new Set(); // números ISO (contextuales si hay CURRENT_MONTH)
 
   for (const v of VAC_DATA) {
     // Meses/Semanas tocadas (iteramos días para abarcar spans)
     for (const day of eachDay(v.start_date, v.end_date)) {
       const { key, label } = monthYearKey(day);
+      // Meses disponibles (globales)
       if (!monthsSet.has(key)) monthsSet.set(key, label);
-      weeksSet.add(isoWeekNumber(day));
+      // Semanas: si hay mes seleccionado, solo del mes; si no, todas
+      if (!CURRENT_MONTH || key === CURRENT_MONTH) {
+        weeksSet.add(isoWeekNumber(day));
+      }
     }
     const e = EMP_BY_ID[v.employee_id];
     if (e) {
@@ -371,7 +381,7 @@ function populateFilters() {
     CURRENT_ROLES = CURRENT_ROLES.filter(r => rolesSet.has(r));
   }
 
-  // Mes
+  // Mes (global)
   if (fMonthSel) {
     const currentM = CURRENT_MONTH;
     const opts = [`<option value="">Todos</option>`];
@@ -385,7 +395,7 @@ function populateFilters() {
     if (currentM && !monthsSet.has(currentM)) CURRENT_MONTH = "";
   }
 
-  // Semana ISO
+  // Semana ISO (contextual al mes si se eligió)
   if (fWeekSel) {
     const currentW = CURRENT_WEEK;
     const opts = [`<option value="">Todas</option>`];
@@ -395,12 +405,14 @@ function populateFilters() {
       opts.push(`<option value="${wStr}"${sel}>Semana ${wStr}</option>`);
     });
     fWeekSel.innerHTML = opts.join("");
-    if (currentW && !weeksSet.has(Number(currentW))) CURRENT_WEEK = "";
+    if (currentW && !weeksSet.has(Number(currentW))) {
+      CURRENT_WEEK = "";
+      fWeekSel.value = "";
+    }
   }
 
   // Bodega (multiselección) con CASCADA por Localización/Departamento
   if (fBodegaSel) {
-    // Primero aplicamos cascada para saber las bodegas visibles
     const visibles = computeVisibleBodegasByLocDept(bodegasSet);
     const selecSet = new Set(CURRENT_BODEGAS);
     const opts = [];
@@ -409,7 +421,6 @@ function populateFilters() {
       opts.push(`<option value="${escapeHtml(b)}"${sel}>${escapeHtml(b)}</option>`);
     });
     fBodegaSel.innerHTML = opts.join("");
-    // limpiar bodegas que ya no apliquen
     CURRENT_BODEGAS = CURRENT_BODEGAS.filter(b => visibles.includes(b));
   }
 }
@@ -425,14 +436,12 @@ function computeVisibleBodegasByLocDept(allBodegasSet) {
     const bod = pick(e, WH_CANDIDATES);
     if (bod) bodegasOK.add(String(bod));
   }
-  // Si por filtros queda vacío, mostramos todas las bodegas conocidas del dataset
   const base = (bodegasOK.size > 0 ? bodegasOK : allBodegasSet);
   return [...base].sort((a,b) => a.localeCompare(b,"es"));
 }
 
 // Reconstruye Bodega cuando cambian Depto/Loc
 function rebuildBodegaOptionsCascading() {
-  // Recalcular universo posible de bodegas desde VAC_DATA/EMP_BY_ID
   const all = new Set();
   for (const v of VAC_DATA) {
     const e = EMP_BY_ID[v.employee_id];
@@ -447,12 +456,11 @@ function rebuildBodegaOptionsCascading() {
     return `<option value="${escapeHtml(b)}"${sel}>${escapeHtml(b)}</option>`;
   }).join("");
   fBodegaSel.innerHTML = html;
-  // Ajustar selección a intersección
   CURRENT_BODEGAS = visibles.filter(b => currentSel.has(b));
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Empalmes
+/** Empalmes */
 // ───────────────────────────────────────────────────────────────────────────────
 function computeOverlaps() {
   OVERLAP_ID_SET = new Set();
@@ -534,7 +542,7 @@ function passesAllFiltersBasic(v) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Render por bloques de MES
+/** Render por bloques de MES */
 // ───────────────────────────────────────────────────────────────────────────────
 function renderList() {
   if (!VAC_DATA || VAC_DATA.length === 0) {
@@ -608,7 +616,7 @@ function renderList() {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Acciones por RPC (vacaciones)
+/** Acciones por RPC (vacaciones) */
 // ───────────────────────────────────────────────────────────────────────────────
 window.authorize = async (id) => {
   if (!confirm("¿Autorizar esta solicitud (forzando reglas si es necesario)?")) return;
@@ -658,7 +666,7 @@ window.deleteVac = async (id) => {
 };
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Empleados: carga, alta, import/export CSV, ordenamiento, editar/borrar, búsqueda
+/** Empleados: carga, alta, import/export CSV, ordenamiento, editar/borrar, búsqueda */
 // ───────────────────────────────────────────────────────────────────────────────
 function showEmpMsg(text, ok = false) {
   if (!empMsg) return;
@@ -1199,3 +1207,4 @@ if (vacCreateApproveBtn) {
     }
   });
 }
+```
