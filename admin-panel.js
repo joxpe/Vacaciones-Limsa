@@ -644,12 +644,30 @@ window.editDate = async (id, start, end) => {
   const newStart = prompt("Nueva fecha de inicio (YYYY-MM-DD):", start);
   const newEnd   = prompt("Nueva fecha de fin (YYYY-MM-DD):", end);
   if (!newStart || !newEnd) return;
-  const { data, error } = await supabase.rpc("vacation_requests_update_dates", {
-    req_id: id, new_start: newStart, new_end: newEnd
-  });
-  if (error || data !== true) { alert("No se pudo editar: " + (error?.message || "RPC devolvió falso")); return; }
+
+  // 1) Intentar edición forzada (admin) si existe
+  let okForce = false;
+  try {
+    const { data, error } = await supabase.rpc("vacation_requests_update_dates_admin_force", {
+      req_id: id, new_start: newStart, new_end: newEnd
+    });
+    if (!error && data === true) okForce = true;
+  } catch (_e) { /* puede no existir la función */ }
+
+  // 2) Fallback a la edición normal
+  if (!okForce) {
+    const { data, error } = await supabase.rpc("vacation_requests_update_dates", {
+      req_id: id, new_start: newStart, new_end: newEnd
+    });
+    if (error || data !== true) {
+      alert("No se pudo editar: " + (error?.message || "RPC devolvió falso"));
+      return;
+    }
+  }
+
   await loadVacations();
 };
+
 
 window.deleteVac = async (id) => {
   if (!confirm("¿Eliminar esta solicitud?")) return;
