@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Administrador Vacaciones</title>
+  <link rel="stylesheet" href="admin-panel.css?v=3">
+</head>
+<body>
+
+  <!-- Botón para regresar al inicio -->
+  <div class="back-link">
+    <a href="index.html" class="back-button" title="Regresar a inicio">⬅️ Regresar</a>
+  </div>
+  
+  <div id="login-screen" class="login-screen">
+    <h2>Acceso Administrador</h2>
+    <input type="password" id="admin-pass" placeholder="Contraseña">
+    <button id="login-btn">Entrar</button>
+    <p id="login-error" class="error"></p>
+  </div>
+
+  <div id="admin-panel" class="hidden">
+    <div class="toolbar">
+      <button id="logout-btn">Cerrar sesión</button>
+      <button id="refresh-btn">🔄 Actualizar</button>
+    </div>
+    <h1>Panel de Vacaciones (Administrador)</h1>
+
+    <!-- Filtros -->
+    <div class="filters" style="margin:10px 0; display:flex; gap:12px; align-items:flex-start; flex-wrap: wrap;">
+      <label class="f-label" for="f-bodega" style="font-weight:600;">Bodega</label>
+      <div style="display:flex; flex-direction:column; gap:4px;">
+        <select id="f-bodega" multiple size="6" class="multi"><!-- opciones desde JS --></select>
+        <small class="hint">Deja sin seleccionar para ver todas</small>
+      </div>
+
+      <label for="f-depto" style="font-weight:600;">Departamento</label>
+      <select id="f-depto">
+        <option value="">Todos</option>
+      </select>
+
+      <!-- NUEVO: Localización -->
+      <label for="f-localizacion" style="font-weight:600;">Localización</label>
+      <select id="f-localizacion">
+        <option value="">Todas</option>
+      </select>
+
+      <label for="f-rol" style="font-weight:600;">Rol</label>
+      <div style="display:flex; flex-direction:column; gap:4px;">
+        <select id="f-rol" multiple size="4" style="min-width:150px;"><!-- opciones desde JS --></select>
+        <span style="font-size:11px; color:#555;">(Ctrl/⌘ + clic para varias opciones)</span>
+      </div>
+
+      <label for="f-status" style="font-weight:600;">Estado</label>
+      <select id="f-status">
+        <option value="">Todas</option>
+        <option value="Aprobado">Autorizadas</option>
+        <option value="Rechazado">Rechazadas</option>
+        <option value="Pendiente">Pendientes</option>
+      </select>
+
+      <label for="f-month" style="font-weight:600;">Mes</label>
+      <select id="f-month">
+        <option value="">Todos</option>
+      </select>
+
+      <label for="f-week" style="font-weight:600;">Semana</label>
+      <select id="f-week">
+        <option value="">Todas</option>
+      </select>
+
+      <label for="f-emp" style="font-weight:600;">Empleado</label>
+      <input type="search" id="f-emp" placeholder="Nombre contiene…">
+
+      <label for="f-overlaps" style="font-weight:600;">Empalmes</label>
+      <input type="checkbox" id="f-overlaps" />
+
+      <label for="f-cross-only" style="font-weight:600;">Solo entre bodegas distintas</label>
+      <input type="checkbox" id="f-cross-only" />
+    </div>
+
+    <!-- Lista de solicitudes -->
+    <div id="vac-list"></div>
+
+    <!-- Gestión de empleados -->
+    <div id="emp-panel" class="card">
+      <h2>Empleados</h2>
+
+      <div class="emp-toolbar" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <input id="emp-search" type="search" placeholder="Buscar por nombre…" />
+        <button id="emp-refresh-btn" type="button">🔄 Actualizar empleados</button>
+        <button id="emp-export-btn" type="button">⬇️ Exportar CSV</button>
+        <label class="emp-import">
+          ⬆️ Importar CSV
+          <input type="file" id="emp-import-input" accept=".csv" hidden>
+        </label>
+      </div>
+
+      <form id="emp-form" class="emp-form">
+        <div class="emp-grid">
+          <div>
+            <label for="emp-nombre">Nombre</label>
+            <input type="text" id="emp-nombre" required>
+          </div>
+          <div>
+            <label for="emp-bodega">Bodega</label>
+            <input type="text" id="emp-bodega">
+          </div>
+          <div>
+            <label for="emp-depto">Departamento</label>
+            <input type="text" id="emp-depto">
+          </div>
+          <div>
+            <label for="emp-localizacion">Localización</label>
+            <input type="text" id="emp-localizacion">
+          </div>
+          <div>
+            <label for="emp-rol">Rol</label>
+            <input type="text" id="emp-rol" placeholder="chofer, supervisor, jefe…">
+          </div>
+          <div>
+            <label for="emp-ingreso">Fecha ingreso</label>
+            <input type="date" id="emp-ingreso" required>
+          </div>
+        </div>
+
+        <button type="submit">➕ Dar de alta empleado</button>
+      </form>
+
+      <div id="emp-msg" class="msg"></div>
+
+      <!-- Alta directa de vacaciones (independiente de filtros) -->
+      <div class="card" style="margin-top:16px;">
+        <h3>Alta directa de vacaciones</h3>
+        <div class="emp-vac-form" style="display:grid; gap:12px; grid-template-columns: 1fr 140px 140px auto auto; align-items:end;">
+          <div>
+            <label for="vac-emp-search">Empleado</label>
+            <input type="text" id="vac-emp-search" placeholder="Buscar por nombre…" autocomplete="off">
+            <div id="vac-emp-suggest" class="suggest" style="position:relative;"></div>
+            <input type="hidden" id="vac-emp-id">
+          </div>
+          <div>
+            <label for="vac-start">Inicio</label>
+            <input type="date" id="vac-start">
+          </div>
+          <div>
+            <label for="vac-end">Fin</label>
+            <input type="date" id="vac-end">
+          </div>
+          <button id="vac-create" type="button">➕ Crear (Pendiente)</button>
+          <button id="vac-create-approve" type="button">✅ Crear y autorizar</button>
+        </div>
+
+        <!-- opcional: presets de rango -->
+        <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" class="preset" data-preset="this-week">Esta semana</button>
+          <button type="button" class="preset" data-preset="next-week">Siguiente semana</button>
+        </div>
+
+        <div id="vac-form-msg" class="msg"></div>
+      </div>
+
+      <div id="emp-list" class="emp-list"></div>
+    </div>
+  </div>
+
+  <!-- Supabase -->
+  <script>
+    window.SUPABASE_URL = "https://kbasekvgsevtwjypzznz.supabase.co";
+    window.SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiYXNla3Znc2V2dHdqeXB6em56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIwNTg3NjUsImV4cCI6MjA3NzYzNDc2NX0.a38X1iS6xhlcoVlrjQ99BcoiVf9REMuVzYR82wYnWHY";
+  </script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm"></script>
+  <script type="module" src="admin-panel.js?v=unapprove-month-week-emp"></script>
+</body>
+</html>
