@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Resumen de Vacaciones</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="report-summary.css">
+</head>
+<body>
+
+  <div class="back-link">
+    <a href="index.html" class="back-button" title="Regresar a inicio">⬅️ Regresar</a>
+  </div>
+
+  <div class="container wide">
+    <h1>Resumen de Vacaciones</h1>
+    <p class="hint">Tablero rápido para ver quién está o se va de vacaciones, y el estado de solicitudes por semana/mes.</p>
+
+    <div class="card">
+      <div class="row" style="gap:12px; flex-wrap:wrap; align-items:flex-end;">
+        <div class="col" style="min-width:260px; flex:1;">
+          <label for="range">Rango</label>
+          <select id="range">
+            <option value="today">Hoy</option>
+            <option value="week">Esta semana</option>
+            <option value="next14">Próximas 2 semanas</option>
+            <option value="month" selected>Este mes</option>
+            <option value="next90">Próximos 3 meses</option>
+            <option value="custom">Personalizado</option>
+          </select>
+        </div>
+
+        <div class="col" style="min-width:180px;">
+          <label for="from">Desde</label>
+          <input type="date" id="from" />
+        </div>
+        <div class="col" style="min-width:180px;">
+          <label for="to">Hasta</label>
+          <input type="date" id="to" />
+        </div>
+
+        <div class="col" style="min-width:220px; flex:1;">
+          <label for="status">Estatus</label>
+          <select id="status">
+            <option value="">Todos</option>
+            <option value="Aprobado">Aprobadas</option>
+            <option value="Pendiente">Pendientes</option>
+          </select>
+        </div>
+
+        <div class="col" style="min-width:220px; flex:1;">
+          <label for="q">Buscar</label>
+          <input type="search" id="q" placeholder="Nombre contiene…" />
+        </div>
+
+        <div class="col" style="min-width:220px; flex:1;">
+          <label for="bodega">Bodega</label>
+          <select id="bodega">
+            <option value="">Todas</option>
+          </select>
+        </div>
+
+        <div class="col" style="min-width:220px; flex:1;">
+          <label for="depto">Departamento</label>
+          <select id="depto">
+            <option value="">Todos</option>
+          </select>
+        </div>
+
+        <div class="col" style="min-width:220px; flex:1;">
+          <label for="loc">Localización</label>
+          <select id="loc">
+            <option value="">Todas</option>
+          </select>
+        </div>
+
+        <div class="col" style="min-width:180px;">
+          <button id="refresh" class="btn-secondary" style="margin-top:0;">Actualizar</button>
+        </div>
+      </div>
+
+      <div class="legend" style="margin-top:12px;">
+        <span class="badge auth">Aprobada</span>
+        <span class="badge pend">Pendiente</span>
+      </div>
+
+      <div id="msg" class="msg" style="margin-top:10px;"></div>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi card">
+        <div class="kpi-title">En vacaciones hoy</div>
+        <div class="kpi-value" id="kpi-today">—</div>
+        <div class="kpi-sub" id="kpi-today-sub">—</div>
+      </div>
+      <div class="kpi card">
+        <div class="kpi-title">Salen en 7 días</div>
+        <div class="kpi-value" id="kpi-next7">—</div>
+        <div class="kpi-sub">Próximas salidas (inician)</div>
+      </div>
+      <div class="kpi card">
+        <div class="kpi-title">Pendientes</div>
+        <div class="kpi-value" id="kpi-pend">—</div>
+        <div class="kpi-sub">Bloques que inician en el rango</div>
+      </div>
+      <div class="kpi card">
+        <div class="kpi-title">Aprobadas</div>
+        <div class="kpi-value" id="kpi-appr">—</div>
+        <div class="kpi-sub">Bloques que inician en el rango</div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h2 class="h2">Hoy en vacaciones</h2>
+        <div id="today-list" class="list"></div>
+      </div>
+
+      <div class="card">
+        <h2 class="h2">Próximas salidas</h2>
+        <div class="hint" style="margin-top:-6px;">Se ordena por fecha de inicio. Solo bloques que inician desde hoy.</div>
+        <div id="upcoming-list" class="list"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="h2">Resumen por semana (pico de personas fuera)</h2>
+      <div class="hint" style="margin-top:-6px;">Próximas 8 semanas a partir de hoy.</div>
+      <div class="table-wrap">
+        <table class="tbl" id="week-table">
+          <thead>
+            <tr>
+              <th>Semana</th>
+              <th>Rango</th>
+              <th>Pico fuera</th>
+              <th>Aprobadas</th>
+              <th>Pendientes</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="h2">Resumen por mes</h2>
+      <div class="table-wrap">
+        <table class="tbl" id="month-table">
+          <thead>
+            <tr>
+              <th>Mes</th>
+              <th>Aprobadas</th>
+              <th>Pendientes</th>
+              <th>Pico fuera</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Supabase -->
+  <script>
+    window.SUPABASE_URL = "https://kbasekvgsevtwjypzznz.supabase.co";
+    window.SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiYXNla3Znc2V2dHdqeXB6em56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIwNTg3NjUsImV4cCI6MjA3NzYzNDc2NX0.a38X1iS6xhlcoVlrjQ99BcoiVf9REMuVzYR82wYnWHY";
+  </script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm"></script>
+  <script type="module" src="report-summary.js?v=2026.02.24-1"></script>
+</body>
+</html>

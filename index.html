@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vacaciones LIMSA 2026</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Solicitar Vacaciones 2026</h1>
+
+    <!-- Botón para abrir el calendario del gerente -->
+<div class="calendar-link">
+  <a href="manager-calendar.html" class="calendar-button" title="Ver calendario del equipo">
+    📅 Ver calendario
+  </a>
+</div>
+
+    <div class="calendar-link">
+  <a href="admin-panel.html" class="calendar-button" title="Entrar al panel de administrador">
+    🛠️ Panel Administrador
+  </a>
+</div>
+
+    <div class="calendar-link">
+  <a href="report-summary.html" class="calendar-button" title="Ver reporte resumen de vacaciones">
+    📊 Resumen
+  </a>
+</div>
+
+  
+    <p class="hint">Selecciona tu nombre y el rango de fechas. Las reglas se validan automáticamente (status = Pendiente).</p>
+
+    <div class="card">
+      <!-- Filtro por bodega -->
+      <label for="warehouse">Bodega</label>
+      <select id="warehouse">
+        <option value="">Todas las bodegas</option>
+      </select>
+
+      <label for="search" style="margin-top:10px;">Buscar nombre</label>
+      <input type="text" id="search" placeholder="Escribe para filtrar…">
+
+      <label for="employee" style="margin-top:10px;">Colaborador</label>
+      <select id="employee">
+        <option value="">Cargando colaboradores…</option>
+      </select>
+
+      <!-- Panel con información del colaborador -->
+      <div id="emp-info" class="emp-info" hidden>
+        <div><strong>Localización:</strong> <span id="v-localizacion">-</span></div>
+        <div><strong>Departamento:</strong> <span id="v-departamento">-</span></div>
+        <div><strong>Bodega:</strong> <span id="v-bodega">-</span></div>
+        <div><strong>Ingreso:</strong> <span id="v-ingreso">-</span> <small>(<span id="v-antig">-</span> años)</small></div>
+        <div><strong>Cupo 2026:</strong> <span id="v-cupo">-</span></div>
+        <div><strong>Usados 2026:</strong> <span id="v-usado">-</span></div>
+        <div><strong>Restantes 2026:</strong> <span id="v-restante">-</span></div>
+      </div>
+
+      <div class="grid">
+        <div>
+          <label for="start">Inicio</label>
+          <input type="date" id="start" required>
+        </div>
+        <div>
+          <label for="end">Fin</label>
+          <input type="date" id="end" required>
+        </div>
+      </div>
+
+      <button id="submit">Enviar solicitud</button>
+      <div id="msg" class="msg"></div>
+    </div>
+
+    <details class="card">
+      <summary>Ver mis solicitudes (2026)</summary>
+      <div id="my-requests"></div>
+    </details>
+  </div>
+
+  <!-- Credenciales Supabase -->
+  <script>
+    window.SUPABASE_URL = "https://kbasekvgsevtwjypzznz.supabase.co";
+    window.SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiYXNla3Znc2V2dHdqeXB6em56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIwNTg3NjUsImV4cCI6MjA3NzYzNDc2NX0.a38X1iS6xhlcoVlrjQ99BcoiVf9REMuVzYR82wYnWHY";
+  </script>
+  <script type="module" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm"></script>
+<script type="module" src="main.js?v=2026.12.29-auto-end-3d"></script>
+</body>
+</html>
