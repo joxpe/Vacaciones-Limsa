@@ -27,67 +27,131 @@
     </div>
     <h1>Panel de Vacaciones (Administrador)</h1>
 
-    <!-- Filtros -->
-    <div class="filters" style="margin:10px 0; display:flex; gap:12px; align-items:flex-start; flex-wrap: wrap;">
-      <label class="f-label" for="f-bodega" style="font-weight:600;">Bodega</label>
-      <div style="display:flex; flex-direction:column; gap:4px;">
-        <select id="f-bodega" multiple size="6" class="multi"><!-- opciones desde JS --></select>
+    <nav class="ap-tabs" aria-label="Módulos">
+      <button type="button" class="ap-tab active" data-tab="solicitudes">Solicitudes</button>
+      <button type="button" class="ap-tab" data-tab="alta-vac">Alta vacaciones</button>
+      <button type="button" class="ap-tab" data-tab="colaboradores">Colaboradores</button>
+    </nav>
+
+    <!-- Módulo: Solicitudes -->
+    <section id="tab-solicitudes" class="ap-module">
+<!-- Filtros -->
+    <div class="filters filters-grid" aria-label="Filtros">
+      <div class="fitem span2">
+        <label class="f-label" for="f-bodega">Bodega</label>
+        <select id="f-bodega" multiple size="6" class="multi"></select>
         <small class="hint">Deja sin seleccionar para ver todas</small>
       </div>
 
-      <label for="f-depto" style="font-weight:600;">Departamento</label>
-      <select id="f-depto">
-        <option value="">Todos</option>
-      </select>
-
-      <!-- NUEVO: Localización -->
-      <label for="f-localizacion" style="font-weight:600;">Localización</label>
-      <select id="f-localizacion">
-        <option value="">Todas</option>
-      </select>
-
-      <label for="f-rol" style="font-weight:600;">Rol</label>
-      <div style="display:flex; flex-direction:column; gap:4px;">
-        <select id="f-rol" multiple size="4" style="min-width:150px;"><!-- opciones desde JS --></select>
-        <span style="font-size:11px; color:#555;">(Ctrl/⌘ + clic para varias opciones)</span>
+      <div class="fitem">
+        <label for="f-depto">Departamento</label>
+        <select id="f-depto">
+          <option value="">Todos</option>
+        </select>
       </div>
 
-      <label for="f-status" style="font-weight:600;">Estado</label>
-      <select id="f-status">
-        <option value="">Todas</option>
-        <option value="Aprobado">Autorizadas</option>
-        <option value="Rechazado">Rechazadas</option>
-        <option value="Pendiente">Pendientes</option>
-      </select>
+      <div class="fitem">
+        <label for="f-localizacion">Localización</label>
+        <select id="f-localizacion">
+          <option value="">Todas</option>
+        </select>
+      </div>
 
-      <label for="f-month" style="font-weight:600;">Mes</label>
-      <select id="f-month">
-        <option value="">Todos</option>
-      </select>
+      <div class="fitem span2">
+        <label for="f-rol">Rol</label>
+        <select id="f-rol" multiple size="4" class="multi"></select>
+        <small class="hint">(Ctrl/⌘ + clic para varias)</small>
+      </div>
 
-      <label for="f-week" style="font-weight:600;">Semana</label>
-      <select id="f-week">
-        <option value="">Todas</option>
-      </select>
+      <div class="fitem">
+        <label for="f-status">Estado</label>
+        <select id="f-status">
+          <option value="">Todas</option>
+          <option value="Aprobado">Autorizadas</option>
+          <option value="Rechazado">Rechazadas</option>
+          <option value="Pendiente">Pendientes</option>
+        </select>
+      </div>
 
-      <label for="f-emp" style="font-weight:600;">Empleado</label>
-      <input type="search" id="f-emp" placeholder="Nombre contiene…">
+      <div class="fitem">
+        <label for="f-month">Mes</label>
+        <select id="f-month">
+          <option value="">Todos</option>
+        </select>
+      </div>
 
-      <label for="f-overlaps" style="font-weight:600;">Empalmes</label>
-      <input type="checkbox" id="f-overlaps" />
+      <div class="fitem">
+        <label for="f-week">Semana</label>
+        <select id="f-week">
+          <option value="">Todas</option>
+        </select>
+      </div>
 
-      <label for="f-cross-only" style="font-weight:600;">Solo entre bodegas distintas</label>
-      <input type="checkbox" id="f-cross-only" />
+      <div class="fitem">
+        <label for="f-emp">Colaborador</label>
+        <input type="search" id="f-emp" placeholder="Nombre contiene…">
+      </div>
+
+      <div class="fitem fchecks">
+        <label class="check">
+          <input type="checkbox" id="f-overlaps" />
+          <span>Solo empalmes</span>
+        </label>
+
+        <label class="check">
+          <input type="checkbox" id="f-cross-only" />
+          <span>Solo entre bodegas distintas</span>
+        </label>
+      </div>
     </div>
 
     <!-- Lista de solicitudes -->
     <div id="vac-list"></div>
+    </section>
 
-    <!-- Gestión de empleados -->
-    <div id="emp-panel" class="card">
-      <h2>Empleados</h2>
+    <!-- Módulo: Alta directa de vacaciones -->
+    <section id="tab-alta-vac" class="ap-module hidden" aria-hidden="true">
+      <div class="card">
+<div class="card" style="margin-top:16px;">
+        <h3>Alta directa de vacaciones</h3>
+        <div class="emp-vac-form" style="display:grid; gap:12px; grid-template-columns: 1fr 140px 140px auto auto; align-items:end;">
+          <div>
+            <label for="vac-emp-search">Empleado</label>
+            <input type="text" id="vac-emp-search" placeholder="Buscar por nombre…" autocomplete="off">
+            <div id="vac-emp-suggest" class="suggest" style="position:relative;"></div>
+            <input type="hidden" id="vac-emp-id">
+          </div>
+          <div>
+            <label for="vac-start">Inicio</label>
+            <input type="date" id="vac-start">
+          </div>
+          <div>
+            <label for="vac-end">Fin</label>
+            <input type="date" id="vac-end">
+          </div>
+          <button id="vac-create" type="button">➕ Crear (Pendiente)</button>
+          <button id="vac-create-approve" type="button">✅ Crear y autorizar</button>
+        </div>
 
-      <div class="emp-toolbar" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <!-- opcional: presets de rango -->
+        <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" class="preset" data-preset="this-week">Esta semana</button>
+          <button type="button" class="preset" data-preset="next-week">Siguiente semana</button>
+        </div>
+
+        <div id="vac-form-msg" class="msg"></div>
+      </div>
+      </div>
+    </section>
+
+<!-- Módulo: Colaboradores -->
+    <section id="tab-colaboradores" class="ap-module hidden" aria-hidden="true">
+      <div id="emp-panel" class="card">
+        <div class="emp-head">
+          <h2 style="margin:0;">Colaboradores</h2>
+</div>
+
+<div class="emp-toolbar" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
         <input id="emp-search" type="search" placeholder="Buscar por nombre…" />
         <button id="emp-refresh-btn" type="button">🔄 Actualizar empleados</button>
         <button id="emp-export-btn" type="button">⬇️ Exportar CSV</button>
@@ -97,7 +161,9 @@
         </label>
       </div>
 
-      <form id="emp-form" class="emp-form">
+        <div id="emp-sub-alta" class="emp-block">
+          <h3 class="emp-block-title">Alta</h3>
+<form id="emp-form" class="emp-form">
         <div class="emp-grid">
           <div>
             <label for="emp-nombre">Nombre</label>
@@ -127,42 +193,15 @@
 
         <button type="submit">➕ Dar de alta empleado</button>
       </form>
-
-      <div id="emp-msg" class="msg"></div>
-
-      <!-- Alta directa de vacaciones (independiente de filtros) -->
-      <div class="card" style="margin-top:16px;">
-        <h3>Alta directa de vacaciones</h3>
-        <div class="emp-vac-form" style="display:grid; gap:12px; grid-template-columns: 1fr 140px 140px auto auto; align-items:end;">
-          <div>
-            <label for="vac-emp-search">Empleado</label>
-            <input type="text" id="vac-emp-search" placeholder="Buscar por nombre…" autocomplete="off">
-            <div id="vac-emp-suggest" class="suggest" style="position:relative;"></div>
-            <input type="hidden" id="vac-emp-id">
-          </div>
-          <div>
-            <label for="vac-start">Inicio</label>
-            <input type="date" id="vac-start">
-          </div>
-          <div>
-            <label for="vac-end">Fin</label>
-            <input type="date" id="vac-end">
-          </div>
-          <button id="vac-create" type="button">➕ Crear (Pendiente)</button>
-          <button id="vac-create-approve" type="button">✅ Crear y autorizar</button>
+<div id="emp-msg" class="msg"></div>
         </div>
 
-        <!-- opcional: presets de rango -->
-        <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
-          <button type="button" class="preset" data-preset="this-week">Esta semana</button>
-          <button type="button" class="preset" data-preset="next-week">Siguiente semana</button>
+        <div id="emp-sub-lista" class="emp-block">
+          <h3 class="emp-block-title">Listado</h3>
+<div id="emp-list" class="emp-list"></div>
         </div>
-
-        <div id="vac-form-msg" class="msg"></div>
       </div>
-
-      <div id="emp-list" class="emp-list"></div>
-    </div>
+    </section>
   </div>
 
   <!-- Supabase -->

@@ -217,3 +217,121 @@ body {
 }
 
 .badge.overlap { background:#e8f0fe; border-color:#1a73e8; }
+
+
+/* Admin Panel Tabs */
+.ap-tabs{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  margin: 8px 0 12px;
+}
+.ap-tab{
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 800;
+}
+.ap-tab.active{
+  background:#111827;
+  border-color:#111827;
+  color:#fff;
+}
+.ap-module{ margin-bottom: 18px; }
+
+.emp-head{
+  display:flex;
+  justify-content:flex-start;
+  align-items:center;
+  gap:12px;
+  flex-wrap:wrap;
+  margin-bottom: 10px;
+}
+@media (max-width: 560px){
+  .ap-tab{ flex: 1 1 auto; }
+}
+
+
+.emp-block{ margin-top: 10px; }
+.emp-block-title{
+  margin: 12px 0 8px;
+  font-size: 15px;
+  opacity: .85;
+}
+
+
+/* ─────────────────────────────────────────────────────────────
+   Responsive inteligente (admin-panel): móvil vs ancha
+   - En ancha: filtros en filas (flex wrap) más "limpio"
+   - En móvil: filtros en 1 columna (grid) para que no se desacomode
+   ───────────────────────────────────────────────────────────── */
+
+.filters-grid{
+  display:flex;
+  flex-wrap:wrap;
+  gap: 12px;
+  align-items:flex-end;
+  margin: 10px 0 14px;
+}
+.filters-grid .fitem{
+  display:flex;
+  flex-direction: column;
+  gap:6px;
+  min-width: 0;
+  flex: 1 1 230px;          /* ancho cómodo en escritorio */
+}
+.filters-grid .span2{ flex: 2 1 480px; } /* Bodega y Rol más anchos */
+.filters-grid .fchecks{ flex: 1 1 260px; padding-top: 22px; gap: 10px; }
+.filters-grid .hint{ font-size:11px; color:#555; }
+
+.filters-grid select,
+.filters-grid input[type="search"]{
+  width:100%;
+  min-width:0;
+  padding:8px 10px;
+  border-radius:8px;
+  border:1px solid #cbd5e1;
+  box-sizing:border-box;
+}
+.filters-grid .multi{ min-height:120px; }
+.filters-grid .check{ display:flex; align-items:center; gap:10px; font-weight:700; }
+.filters-grid .check input{ transform: scale(1.1); }
+
+/* Tablet: un poco más compacto */
+.is-tablet .filters-grid .fitem{ flex: 1 1 200px; }
+.is-tablet .filters-grid .span2{ flex-basis: 420px; }
+.is-tablet .filters-grid .fchecks{ padding-top: 0; }
+
+/* Móvil: 1 columna (grid) */
+.is-mobile .filters-grid{
+  display:grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+.is-mobile .filters-grid .fitem,
+.is-mobile .filters-grid .span2,
+.is-mobile .filters-grid .fchecks{
+  flex: initial;
+  padding-top: 0;
+}
+.is-mobile .filters-grid .multi{ min-height:140px; }
+
+/* Móvil: acomodar lista y formularios */
+@media (max-width: 700px){
+  body{ margin: 12px; }
+  .toolbar{ flex-wrap:wrap; gap:10px; }
+
+  .vac-item{ flex-direction: column; gap: 10px; align-items:flex-start; }
+  .vac-item button{ margin-left: 0; margin-right: 8px; }
+
+  .emp-vac-form{ grid-template-columns: 1fr !important; }
+  .emp-vac-form button{ width:100%; }
+
+  .emp-toolbar{ flex-wrap:wrap; }
+  .emp-toolbar input[type="search"]{ width:100%; flex: 1 1 100%; }
+  .emp-toolbar button, .emp-import{ width:100%; justify-content:center; }
+
+  .emp-list table{ display:block; overflow-x:auto; white-space:nowrap; }
+}

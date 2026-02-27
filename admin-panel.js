@@ -119,6 +119,22 @@ const vacEmpSuggest  = $("#vac-emp-suggest");
 const vacEmpId       = $("#vac-emp-id");
 const vacStart       = $("#vac-start");
 const vacEnd         = $("#vac-end");
+
+
+// Default: al seleccionar fecha de inicio, poner fin = +3 días (como en index)
+if (vacStart && vacEnd) {
+  vacStart.addEventListener("change", () => {
+    const s = vacStart.value;
+    if (!s) return;
+    const currentEnd = vacEnd.value;
+    const suggested = addDaysISO(s, 3);
+
+    // Si no hay fin o el fin es anterior al inicio, ajusta automáticamente
+    if (!currentEnd || currentEnd < s) {
+      vacEnd.value = suggested;
+    }
+  });
+}
 const vacCreateBtn   = $("#vac-create");
 const vacCreateApproveBtn = $("#vac-create-approve");
 const vacFormMsg     = $("#vac-form-msg");
@@ -721,6 +737,17 @@ function normTxt(s){
     .trim();
 }
 
+
+function addDaysISO(isoDateStr, days){
+  if (!isoDateStr) return "";
+  const d = new Date(isoDateStr + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,"0");
+  const dd = String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${dd}`;
+}
+
 function compareText(a, b) { const aa = normalizeText(a), bb = normalizeText(b); return aa<bb?-1:aa>bb?1:0; }
 function compareDate(a, b) {
   if (!a && !b) return 0; if (!a) return -1; if (!b) return 1;
@@ -1253,3 +1280,72 @@ if (vacCreateApproveBtn) {
     }
   });
 }
+
+
+
+// ─────────────────────────────────────────────────────────────
+// UI: Tabs (para evitar pantalla larga)
+// ─────────────────────────────────────────────────────────────
+(function(){
+  const tabs = Array.from(document.querySelectorAll(".ap-tab"));
+  const modules = {
+    "solicitudes": document.getElementById("tab-solicitudes"),
+    "alta-vac": document.getElementById("tab-alta-vac"),
+    "colaboradores": document.getElementById("tab-colaboradores"),
+  };
+
+  function showModule(key){
+    Object.entries(modules).forEach(([k, el]) => {
+      if (!el) return;
+      const active = (k === key);
+      el.classList.toggle("hidden", !active);
+      if (!active) el.setAttribute("aria-hidden","true");
+      else el.setAttribute("aria-hidden","false");
+    });
+    tabs.forEach(b => b.classList.toggle("active", b.dataset.tab === key));
+
+    // Fix: cuando cambias de módulo, recalcula layout si hay algo sticky
+    window.dispatchEvent(new Event("resize"));
+  }
+
+  tabs.forEach(b => b.addEventListener("click", () => showModule(b.dataset.tab)));
+
+  // Subtabs de Empleados
+  const subTabs = Array.from(document.querySelectorAll(".emp-subtab"));
+  const subAlta = document.getElementById("emp-sub-alta");
+  const subLista = document.getElementById("emp-sub-lista");
+  function showEmpSub(which){
+    if (subAlta) subAlta.classList.toggle("hidden", which !== "alta");
+    if (subLista) subLista.classList.toggle("hidden", which !== "lista");
+    if (subAlta) subAlta.setAttribute("aria-hidden", which !== "alta");
+    if (subLista) subLista.setAttribute("aria-hidden", which !== "lista");
+    subTabs.forEach(b => b.classList.toggle("active", b.dataset.subtab === which));
+    window.dispatchEvent(new Event("resize"));
+  }
+  subTabs.forEach(b => b.addEventListener("click", () => showEmpSub(b.dataset.subtab)));
+
+  // Estado inicial
+  showModule("solicitudes");
+})();
+
+
+
+// ─────────────────────────────────────────────────────────────
+// Responsive inteligente: marca la UI según ancho de pantalla
+// ─────────────────────────────────────────────────────────────
+(function(){
+  const mqMobile = window.matchMedia("(max-width: 700px)");
+  const mqTablet = window.matchMedia("(max-width: 980px)");
+  function apply(){
+    const root = document.documentElement;
+    root.classList.toggle("is-mobile", mqMobile.matches);
+    root.classList.toggle("is-tablet", !mqMobile.matches && mqTablet.matches);
+    root.classList.toggle("is-wide", !mqTablet.matches);
+  }
+  apply();
+  if (mqMobile.addEventListener) mqMobile.addEventListener("change", apply);
+  else mqMobile.addListener(apply);
+  if (mqTablet.addEventListener) mqTablet.addEventListener("change", apply);
+  else mqTablet.addListener(apply);
+  window.addEventListener("resize", apply);
+})();
