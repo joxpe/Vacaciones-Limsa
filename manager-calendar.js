@@ -40,8 +40,9 @@ function isSundayISO(iso){
 // Estado actual (bodegas = arreglo multiselección)
 let CUR = { month: new Date(), bodegas: [], depto: '', loc: '' };
 
-// Feriados 2026
+// Feriados y fechas bloqueadas
 let HOLIDAYS_2026 = new Set();
+let BLACKOUT_DATES = new Map();
 
 // Cache de empleados y listas
 let EMP_ROWS_CACHE = [];           // employees_public_v2()
@@ -54,9 +55,22 @@ async function loadHolidays(){
   try {
     const { data, error } = await supabase.rpc('vac_feriados_2026');
     if (error) { console.warn('No pude cargar feriados 2026:', error.message); return; }
-    HOLIDAYS_2026 = new Set((data || []).map(r => r.d));
+    HOLIDAYS_2026 = new Set((data || []).map(r => String(r.d).slice(0,10)));
   } catch (e) {
     console.warn('Error inesperado cargando feriados 2026:', e);
+  }
+}
+
+async function loadBlackoutDates(){
+  try {
+    const { data, error } = await supabase
+      .from('vacation_blackout_dates')
+      .select('date, description, active')
+      .eq('active', true);
+    if (error) { console.warn('No pude cargar fechas bloqueadas:', error.message); return; }
+    BLACKOUT_DATES = new Map((data || []).map(r => [String(r.date).slice(0,10), String(r.description || 'Fecha bloqueada')]));
+  } catch (e) {
+    console.warn('Error inesperado cargando fechas bloqueadas:', e);
   }
 }
 
@@ -161,11 +175,12 @@ function buildCalendarGrid(monthDate){
     cell.dataset.date = dateStr;
     cell.innerHTML = `<div class="cal-daynum">${d}</div><div class="cal-badges"></div>`;
 
-    // Buen Fin (marcar)
-    if (dateStr >= "2026-11-13" && dateStr <= "2026-11-16") {
+    // Fechas bloqueadas para vacaciones (mismo estilo que Buen Fin)
+    if (BLACKOUT_DATES.has(dateStr)) {
       cell.classList.add('buenfin');
+      cell.dataset.blackoutLabel = BLACKOUT_DATES.get(dateStr) || 'Fecha bloqueada';
     }
-    // Otros feriados (no laborales)
+    // Feriados reales / no laborales
     else if (HOLIDAYS_2026.has(dateStr)) {
       cell.classList.add('holiday');
     }
@@ -252,13 +267,16 @@ async function loadMonth(){
     const $badges = cell.querySelector('.cal-badges');
     $badges.innerHTML = mapDay[day].map(r => {
       const klass =
-        r.status === 'Aprobado'  ? 'badge auth' :
-        r.status === 'Pendiente' ? 'badge pend' :
+        r.status === 'Aprobado'      ? 'badge auth' :
+        r.status === 'Pre-aprobado'  ? 'badge pre' :
+        r.status === 'Pendiente'     ? 'badge pend' :
         'badge other';
 
       const lc = (LOC_BY_ID[r.employee_id] ?? '').trim();
-      const tip = `${r.nombre} • ${r.bodega ?? ''} • ${r.departamento ?? ''} • ${lc || 's/loc'} • ${r.status}`;
-      return `<span class="${klass}" title="${tip}">${initials(r.nombre)}</span>`;
+      const coverTip = (r.cover_name && r.status === 'Aprobado') ? ` • Cubre: ${r.cover_name}` : '';
+      const coverMini = (r.cover_name && r.status === 'Aprobado') ? `<small class="cover-mini">→${initials(r.cover_name)}</small>` : '';
+      const tip = `${r.nombre} • ${r.bodega ?? ''} • ${r.departamento ?? ''} • ${lc || 's/loc'} • ${r.status}${coverTip}`;
+      return `<span class="${klass}" title="${tip}">${initials(r.nombre)}${coverMini}</span>`;
     }).join('');
   }
 
@@ -292,6 +310,7 @@ $next.addEventListener('click', () => { CUR.month = new Date(CUR.month.getFullYe
   CUR.month = new Date();
   await loadFilters();       // llena combos y construye listas base
   await loadHolidays();
+  await loadBlackoutDates();
   buildCalendarGrid(CUR.month);
   await loadMonth();
 })();

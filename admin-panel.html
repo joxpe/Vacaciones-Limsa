@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Administrador Vacaciones</title>
-  <link rel="stylesheet" href="admin-panel.css?v=3">
+  <link rel="stylesheet" href="admin-panel.css?v=feriados-blackouts-20260406-1">
 </head>
 <body>
 
@@ -15,7 +15,8 @@
   
   <div id="login-screen" class="login-screen">
     <h2>Acceso Administrador</h2>
-    <input type="password" id="admin-pass" placeholder="Contraseña">
+    <input type="email" id="admin-email" placeholder="Correo" autocomplete="username">
+    <input type="password" id="admin-pass" placeholder="Contraseña" autocomplete="current-password">
     <button id="login-btn">Entrar</button>
     <p id="login-error" class="error"></p>
   </div>
@@ -31,6 +32,8 @@
       <button type="button" class="ap-tab active" data-tab="solicitudes">Solicitudes</button>
       <button type="button" class="ap-tab" data-tab="alta-vac">Alta vacaciones</button>
       <button type="button" class="ap-tab" data-tab="colaboradores">Colaboradores</button>
+      <button type="button" class="ap-tab" data-tab="feriados">Feriados</button>
+      <button type="button" class="ap-tab" data-tab="blackouts">Fechas bloqueadas</button>
     </nav>
 
     <!-- Módulo: Solicitudes -->
@@ -68,6 +71,7 @@
         <select id="f-status">
           <option value="">Todas</option>
           <option value="Aprobado">Autorizadas</option>
+          <option value="Pre-aprobado">Pre-aprobadas</option>
           <option value="Rechazado">Rechazadas</option>
           <option value="Pendiente">Pendientes</option>
         </select>
@@ -202,14 +206,154 @@
         </div>
       </div>
     </section>
+
+    <!-- Módulo: Feriados -->
+    <section id="tab-feriados" class="ap-module hidden" aria-hidden="true">
+      <div class="card">
+        <h2 style="margin-top:0;">Feriados</h2>
+        <p class="muted">Registra un día o un rango. El sistema guardará un registro por cada fecha del rango.</p>
+
+        <div class="holiday-form-grid">
+          <div>
+            <label for="holiday-desc">Descripción</label>
+            <input type="text" id="holiday-desc" placeholder="Ej. Semana Santa / Navidad / Puente">
+          </div>
+          <div>
+            <label for="holiday-start">Fecha inicio</label>
+            <input type="date" id="holiday-start">
+          </div>
+          <div>
+            <label for="holiday-end">Fecha fin</label>
+            <input type="date" id="holiday-end">
+          </div>
+          <div>
+            <label for="holiday-source">Origen</label>
+            <input type="text" id="holiday-source" placeholder="admin" value="admin">
+          </div>
+        </div>
+
+        <div class="holiday-actions">
+          <button type="button" id="holiday-save-btn">💾 Guardar feriado</button>
+          <button type="button" id="holiday-cancel-btn" class="secondary hidden">Cancelar edición</button>
+          <button type="button" id="holiday-refresh-btn" class="secondary">🔄 Actualizar</button>
+        </div>
+
+        <div id="holiday-msg" class="msg"></div>
+
+        <div class="holiday-list-wrap">
+          <table class="holiday-table">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Descripción</th>
+                <th>Origen</th>
+                <th>Año</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="holiday-list"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Módulo: Fechas bloqueadas -->
+    <section id="tab-blackouts" class="ap-module hidden" aria-hidden="true">
+      <div class="card">
+        <h2 style="margin-top:0;">Fechas bloqueadas</h2>
+        <p class="muted">Días donde sí se trabaja, pero no se permite solicitar vacaciones. Ejemplo: Buen Fin.</p>
+
+        <div class="blackout-form-grid">
+          <div>
+            <label for="blackout-desc">Descripción</label>
+            <input type="text" id="blackout-desc" placeholder="Ej. Buen Fin">
+          </div>
+          <div>
+            <label for="blackout-date">Fecha</label>
+            <input type="date" id="blackout-date">
+          </div>
+          <div>
+            <label for="blackout-active">Activo</label>
+            <select id="blackout-active">
+              <option value="true" selected>Sí</option>
+              <option value="false">No</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="blackout-actions">
+          <button id="blackout-save-btn" type="button">💾 Guardar fecha bloqueada</button>
+          <button id="blackout-cancel-btn" type="button" class="secondary hidden">Cancelar edición</button>
+          <button id="blackout-refresh-btn" type="button" class="secondary">🔄 Actualizar</button>
+        </div>
+
+        <div id="blackout-msg" class="msg"></div>
+
+        <div class="blackout-list-wrap">
+          <table class="blackout-table">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Descripción</th>
+                <th>Activo</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="blackout-list"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
   </div>
 
   <!-- Supabase -->
-  <script>
-    window.SUPABASE_URL = "https://kbasekvgsevtwjypzznz.supabase.co";
-    window.SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiYXNla3Znc2V2dHdqeXB6em56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIwNTg3NjUsImV4cCI6MjA3NzYzNDc2NX0.a38X1iS6xhlcoVlrjQ99BcoiVf9REMuVzYR82wYnWHY";
-  </script>
+  <script src="supabase-config.js"></script>
   <script type="module" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm"></script>
-  <script type="module" src="admin-panel.js?v=unapprove-month-week-emp"></script>
+    
+  <div id="cover-modal" class="modal hidden" aria-hidden="true">
+    <div class="modal-card coverage-card">
+      <h3 id="cover-modal-title">Autorizar y definir coberturas</h3>
+      <p id="cover-modal-meta" class="modal-meta"></p>
+
+      <div class="coverage-grid">
+        <div>
+          <label for="cover-search">Buscar colaborador</label>
+          <input type="search" id="cover-search" placeholder="Nombre contiene…">
+        </div>
+        <div>
+          <label for="cover-select">Colaborador que cubre</label>
+          <select id="cover-select" size="8"></select>
+        </div>
+        <div>
+          <label for="cover-start">Inicio cobertura</label>
+          <input type="date" id="cover-start">
+        </div>
+        <div>
+          <label for="cover-end">Fin cobertura</label>
+          <input type="date" id="cover-end">
+        </div>
+      </div>
+
+      <p id="cover-modal-msg" class="msg"></p>
+
+      <div class="modal-actions modal-actions-top">
+        <button type="button" id="cover-save">Agregar cobertura</button>
+        <button type="button" id="cover-authorize" class="hidden">Autorizar ahora</button>
+      </div>
+
+      <div class="coverage-current">
+        <h4>Coberturas registradas</h4>
+        <p id="cover-empty" class="muted">Sin coberturas registradas.</p>
+        <div id="cover-list" class="cover-list"></div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" id="cover-cancel">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="admin-panel.js?v=feriados-blackouts-20260406-1"></script>
 </body>
 </html>

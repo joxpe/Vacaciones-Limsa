@@ -2,12 +2,14 @@
 // RPCs vacaciones (SECURITY DEFINER):
 //   vacation_requests_delete_admin(req_id uuid) -> boolean
 //   vacation_requests_approve(req_id uuid) -> boolean
+//   vacation_requests_approve_with_cover(req_id uuid, cover_emp_id uuid) -> boolean
 //   vacation_requests_reject(req_id uuid) -> boolean
 //   vacation_requests_update_dates(req_id uuid, new_start date, new_end date) -> boolean
 //   vacation_requests_unapprove(req_id uuid) -> boolean
 //   vacation_requests_create(emp_id uuid, s date, e date) -> uuid
 //   vacation_requests_create_admin_force(emp_id uuid, s date, e date, auto_approve boolean DEFAULT false) -> uuid
 //   (opcional para bypass al aprobar) vacation_requests_approve_admin_force(req_id uuid) -> boolean
+//   (opcional para bypass al aprobar) vacation_requests_approve_admin_force_with_cover(req_id uuid, cover_emp_id uuid) -> boolean
 //
 // RPCs empleados (SECURITY DEFINER):
 //   employees_insert_admin(p_nombre text, p_bodega text, p_departamento text, p_localizacion text, p_rol text, p_fecha_ingreso date) -> uuid
@@ -21,7 +23,6 @@ const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 // ───────────────────────────────────────────────────────────────────────────────
 // Config
 // ───────────────────────────────────────────────────────────────────────────────
-const LOCAL_PASSWORD = "limsa2026";
 const NAME_CANDIDATES = ["nombre", "name", "full_name", "display_name", "empleado"];
 const WH_CANDIDATES   = ["bodega", "warehouse", "almacen", "site", "location", "ubicacion"];
 const MESES_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -71,6 +72,40 @@ const escapeHtml = (s) =>
     .replaceAll('"',"&quot;")
     .replaceAll("'","&#039;");
 
+function getStatusClass(status) {
+  const s = String(status || '').trim();
+  if (s === 'Aprobado') return 'aprobado';
+  if (s === 'Rechazado') return 'rechazado';
+  if (s === 'Pre-aprobado') return 'preaprobado';
+  if (s === 'Pendiente' || s === 'Propuesta') return 'pendiente';
+  return 'otro';
+}
+
+function getStatusActions(v) {
+  const status = String(v?.status || '');
+  const actions = [];
+
+  if (status === 'Pendiente') {
+    actions.push(`<button onclick="preApprove('${v.id}')">🟡 Pre-aprobar</button>`);
+    actions.push(`<button onclick="openAuthorizeModalForRequest('${v.id}')">✅ Autorizar</button>`);
+    actions.push(`<button onclick="reject('${v.id}')">❌ Rechazar</button>`);
+  } else if (status === 'Pre-aprobado') {
+    actions.push(`<button onclick="openAuthorizeModalForRequest('${v.id}')">✅ Autorizar</button>`);
+    actions.push(`<button onclick="backToPending('${v.id}')">↩ Pendiente</button>`);
+    actions.push(`<button onclick="reject('${v.id}')">❌ Rechazar</button>`);
+  } else if (status === 'Aprobado') {
+    actions.push(`<button onclick="reject('${v.id}')">❌ Rechazar</button>`);
+  } else if (status === 'Rechazado') {
+    actions.push(`<button onclick="backToPending('${v.id}')">↩ Pendiente</button>`);
+  } else {
+    actions.push(`<button onclick="openAuthorizeModalForRequest('${v.id}')">✅ Autorizar</button>`);
+  }
+
+  actions.push(`<button onclick="editDate('${v.id}', '${v.start_date}', '${v.end_date}')">🗓 Editar</button>`);
+  actions.push(`<button onclick="deleteVac('${v.id}')">🗑</button>`);
+  return actions.join(' ');
+}
+
 // ───────────────────────────────────────────────────────────────────────────────
 // UI refs
 // ───────────────────────────────────────────────────────────────────────────────
@@ -81,6 +116,7 @@ const logoutBtn   = $("#logout-btn");
 const refreshBtn  = $("#refresh-btn");
 const vacList     = $("#vac-list");
 const errorMsg    = $("#login-error");
+const adminEmail  = $("#admin-email");
 
 const fBodegaSel  = $("#f-bodega");          // multiselect
 const fDeptoSel   = $("#f-depto");
@@ -104,6 +140,26 @@ const empExportBtn   = $("#emp-export-btn");
 const empImportInput = $("#emp-import-input");
 const empForm        = $("#emp-form");
 const empMsg         = $("#emp-msg");
+const holidayDesc      = $("#holiday-desc");
+const holidayStart     = $("#holiday-start");
+const holidayEnd       = $("#holiday-end");
+const holidaySource    = $("#holiday-source");
+const holidaySaveBtn   = $("#holiday-save-btn");
+const holidayCancelBtn = $("#holiday-cancel-btn");
+const holidayRefreshBtn= $("#holiday-refresh-btn");
+const holidayMsg       = $("#holiday-msg");
+const holidayList      = $("#holiday-list");
+const blackoutDesc      = $("#blackout-desc");
+const blackoutDate      = $("#blackout-date");
+const blackoutActive    = $("#blackout-active");
+const blackoutSaveBtn   = $("#blackout-save-btn");
+const blackoutCancelBtn = $("#blackout-cancel-btn");
+const blackoutRefreshBtn= $("#blackout-refresh-btn");
+const blackoutMsg       = $("#blackout-msg");
+const blackoutList      = $("#blackout-list");
+
+let HOLIDAY_EDIT_DATE = null;
+let BLACKOUT_EDIT_ID = null;
 const empList        = $("#emp-list");
 const empNombre      = $("#emp-nombre");
 const empBod         = $("#emp-bodega");
@@ -139,18 +195,34 @@ const vacCreateBtn   = $("#vac-create");
 const vacCreateApproveBtn = $("#vac-create-approve");
 const vacFormMsg     = $("#vac-form-msg");
 
+// Modal coberturas
+const coverModal        = $("#cover-modal");
+const coverModalTitle   = $("#cover-modal-title");
+const coverModalMeta    = $("#cover-modal-meta");
+const coverSearch       = $("#cover-search");
+const coverSelect       = $("#cover-select");
+const coverStart        = $("#cover-start");
+const coverEnd          = $("#cover-end");
+const coverSaveBtn      = $("#cover-save");
+const coverAuthorizeBtn = $("#cover-authorize");
+const coverCancelBtn    = $("#cover-cancel");
+const coverModalMsg     = $("#cover-modal-msg");
+const coverList         = $("#cover-list");
+const coverEmpty        = $("#cover-empty");
+
 // ───────────────────────────────────────────────────────────────────────────────
 // Estado
 // ───────────────────────────────────────────────────────────────────────────────
 let VAC_DATA = [];
 let EMP_DATA = [];
 let EMP_BY_ID = {};
+let COVERAGES_BY_REQ = {};
 
 let CURRENT_BODEGAS = [];   // multiselección de bodegas
 let CURRENT_DEPTO   = "";   // "", o departamento exacto
 let CURRENT_LOC     = "";   // "", o localización exacta
 let CURRENT_ROLES   = [];   // [], o lista de roles seleccionados
-let CURRENT_STATUS  = "";   // "", "Aprobado", "Rechazado"
+let CURRENT_STATUS  = "";   // "", "Pendiente", "Pre-aprobado", "Aprobado", "Rechazado"
 let CURRENT_MONTH   = "";   // "", o "YYYY-MM"
 let CURRENT_WEEK    = "";   // "", o número 1..53 (string)
 let CURRENT_EMP_Q = "";   // filtro texto de empleado
@@ -164,26 +236,127 @@ let EMP_SORT_DIR     = "asc";
 let EMP_FILTER_TEXT  = "";
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Login local
+// Login admin con Supabase Auth
 // ───────────────────────────────────────────────────────────────────────────────
-loginBtn.addEventListener("click", async () => {
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+let ADMIN_SYNC_IN_PROGRESS = false;
+let ADMIN_SYNC_PENDING = false;
+
+async function fetchAdminRow(userId) {
+  // Pequeño retry para evitar falsos negativos justo después del login
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { data, error } = await supabase
+      .from("admins")
+      .select("user_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) return { data: null, error };
+    if (data) return { data, error: null };
+
+    if (attempt === 0) await delay(250);
+  }
+
+  return { data: null, error: null };
+}
+
+async function requireAdminSession() {
   errorMsg.textContent = "";
-  const pass = $("#admin-pass").value.trim();
-  if (pass !== LOCAL_PASSWORD) { errorMsg.textContent = "Contraseña incorrecta"; return; }
+
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+  if (sessionError || !session) {
+    adminPanel.classList.add("hidden");
+    loginScreen.classList.remove("hidden");
+    return false;
+  }
+
+  const { data: adminRow, error: adminErr } = await fetchAdminRow(session.user.id);
+
+  if (adminErr) {
+    errorMsg.textContent = "Error validando permisos: " + adminErr.message;
+    adminPanel.classList.add("hidden");
+    loginScreen.classList.remove("hidden");
+    return false;
+  }
+
+  if (!adminRow) {
+    errorMsg.textContent = "Tu usuario no tiene permisos de administrador";
+    adminPanel.classList.add("hidden");
+    loginScreen.classList.remove("hidden");
+    return false;
+  }
+
   loginScreen.classList.add("hidden");
   adminPanel.classList.remove("hidden");
-  loadVacations();
-  loadEmployeesAdmin();
+  return true;
+}
+
+async function syncAdminState() {
+  if (ADMIN_SYNC_IN_PROGRESS) {
+    ADMIN_SYNC_PENDING = true;
+    return;
+  }
+
+  ADMIN_SYNC_IN_PROGRESS = true;
+
+  try {
+    const ok = await requireAdminSession();
+    if (!ok) return;
+
+    await loadVacations();
+    await loadEmployeesAdmin();
+  } finally {
+    ADMIN_SYNC_IN_PROGRESS = false;
+
+    if (ADMIN_SYNC_PENDING) {
+      ADMIN_SYNC_PENDING = false;
+      await syncAdminState();
+    }
+  }
+}
+
+loginBtn.addEventListener("click", async () => {
+  errorMsg.textContent = "";
+
+  const email = adminEmail?.value?.trim() || "";
+  const pass = $("#admin-pass").value.trim();
+
+  if (!email || !pass) {
+    errorMsg.textContent = "Captura correo y contraseña";
+    return;
+  }
+
+  loginBtn.disabled = true;
+
+  try {
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password: pass
+    });
+
+    if (error) {
+      errorMsg.textContent = error.message || "No se pudo iniciar sesión";
+      return;
+    }
+
+    // onAuthStateChange hará la validación y la carga del panel.
+  } finally {
+    loginBtn.disabled = false;
+  }
 });
 
-logoutBtn.addEventListener("click", () => {
+logoutBtn.addEventListener("click", async () => {
+  await supabase.auth.signOut();
   adminPanel.classList.add("hidden");
   loginScreen.classList.remove("hidden");
 });
 
-refreshBtn.addEventListener("click", () => {
-  loadVacations();
-  loadEmployeesAdmin();
+refreshBtn.addEventListener("click", async () => {
+  const ok = await requireAdminSession();
+  if (!ok) return;
+  await loadVacations();
+  await loadEmployeesAdmin();
 });
 
 // Filtro Bodega (multiselección)
@@ -302,7 +475,6 @@ if (fCrossOnly) {
 async function loadVacations() {
   vacList.innerHTML = "<p>Cargando...</p>";
 
-  // 1) Solicitudes
   const { data: vacs, error: err1 } = await supabase
     .from("vacation_requests")
     .select("id, employee_id, start_date, end_date, status, created_at")
@@ -313,14 +485,16 @@ async function loadVacations() {
     console.error(err1);
     return;
   }
+
   VAC_DATA = vacs || [];
+  COVERAGES_BY_REQ = {};
+
   if (VAC_DATA.length === 0) {
     vacList.innerHTML = "<p>No hay solicitudes registradas.</p>";
-    populateFilters(); // aún así, inicializa filtros
+    populateFilters();
     return;
   }
 
-  // 2) Empleados (solo los que tienen solicitudes)
   const empIds = [...new Set(VAC_DATA.map(v => v.employee_id).filter(Boolean))];
   EMP_BY_ID = {};
   if (empIds.length > 0) {
@@ -335,15 +509,30 @@ async function loadVacations() {
     }
   }
 
-  // 3) Filtros (incluye Mes / Semana / Localización y cascada de Bodega)
+  try {
+    const reqIds = VAC_DATA.map(v => v.id);
+    const { data: covs, error: covErr } = await supabase.rpc("vacation_request_coverages_many", { req_ids: reqIds });
+    if (covErr) {
+      console.warn("No se pudieron cargar coberturas:", covErr.message);
+    } else {
+      for (const c of (covs || [])) {
+        if (!COVERAGES_BY_REQ[c.request_id]) COVERAGES_BY_REQ[c.request_id] = [];
+        COVERAGES_BY_REQ[c.request_id].push(c);
+      }
+      for (const reqId of Object.keys(COVERAGES_BY_REQ)) {
+        COVERAGES_BY_REQ[reqId].sort((a, b) => String(a.cover_start_date).localeCompare(String(b.cover_start_date)));
+      }
+    }
+  } catch (e) {
+    console.warn("Error inesperado cargando coberturas:", e);
+  }
+
   populateFilters();
-
-  // 4) Empalmes (según filtros)
   computeOverlaps();
-
-  // 5) Render
   renderList();
 }
+
+// Llena combos
 
 // Llena combos de Bodega/Departamento/Rol/Localización/Mes/Semana
 function populateFilters() {
@@ -619,8 +808,10 @@ function renderList() {
       const rol    = e.rol ?? "";
       const depto  = e.departamento ?? "";
       const loc    = e.localizacion ?? "";
-      const cls = (v.status || "").toLowerCase();
+      const cls = getStatusClass(v.status);
       const overlapMark = OVERLAP_ID_SET.has(v.id) ? ` <span class="badge overlap">Empalme</span>` : "";
+      const actionsHtml = getStatusActions(v);
+      const coverages = (COVERAGES_BY_REQ[v.id] || []).slice().sort((a,b) => String(a.cover_start_date).localeCompare(String(b.cover_start_date)));
 
       html += `
         <div class="vac-item">
@@ -632,16 +823,13 @@ function renderList() {
             ${loc ? `Loc: ${escapeHtml(loc)}<br>` : ""}
             ${escapeHtml(v.start_date)} → ${escapeHtml(v.end_date)}<br>
             Estado: <span class="badge ${cls}">${escapeHtml(v.status)}</span>
+            ${v.status === 'Aprobado'
+              ? (coverages.length
+                  ? `<div class="cover-line">Coberturas:<br>${coverages.map(c => `• ${escapeHtml(c.cover_start_date)} → ${escapeHtml(c.cover_end_date)} — <strong>${escapeHtml(c.cover_name || '')}</strong>`).join('<br>')}</div>`
+                  : `<div class="cover-line">Coberturas: <strong>Sin cobertura</strong></div>`)
+              : ''}
           </div>
-          <div>
-            ${
-              v.status !== "Aprobado"
-                ? `<button onclick="authorize('${v.id}')">✅ Autorizar</button>`
-                : `<button onclick="reject('${v.id}')">❌ Rechazar</button>`
-            }
-            <button onclick="editDate('${v.id}', '${v.start_date}', '${v.end_date}')">🗓 Editar</button>
-            <button onclick="deleteVac('${v.id}')">🗑</button>
-          </div>
+          <div>${actionsHtml}</div>
         </div>
       `;
     }
@@ -653,20 +841,274 @@ function renderList() {
 // ───────────────────────────────────────────────────────────────────────────────
 /** Acciones por RPC (vacaciones) */
 // ───────────────────────────────────────────────────────────────────────────────
-window.authorize = async (id) => {
-  if (!confirm("¿Autorizar esta solicitud (forzando reglas si es necesario)?")) return;
+function rangesOverlap(aStart, aEnd, bStart, bEnd) {
+  return String(aStart) <= String(bEnd) && String(aEnd) >= String(bStart);
+}
 
-  // 1) Intentar RPC forzada si existe
+function initials(nombre){
+  const p = String(nombre || '').split(/\s+/).filter(Boolean);
+  return ((p[0]?.[0] || '') + (p[1]?.[0] || '')).toUpperCase();
+}
+
+
+function getCoverageCandidates(requestLike) {
+  const employeeId = requestLike?.employee_id;
+  return (EMP_DATA || [])
+    .filter(e => e.id && e.id !== employeeId)
+    .map(e => ({ id: e.id, nombre: e.nombre || `Empleado ${String(e.id).slice(0,8)}` }))
+    .sort((a, b) => String(a.nombre).localeCompare(String(b.nombre), 'es-MX'));
+}
+
+let COVERAGE_CTX = {
+  request: null,
+  approveMode: false,
+  editingId: null,
+  changed: false,
+  list: [],
+  listCandidates: []
+};
+
+function renderCoverageOptions(query = '') {
+  if (!coverSelect) return;
+  const q = normTxt(query);
+  const list = (COVERAGE_CTX.listCandidates || []).filter(e => !q || normTxt(e.nombre).includes(q));
+  coverSelect.innerHTML = list.map(e => `<option value="${e.id}">${escapeHtml(e.nombre)}</option>`).join('');
+  if (!coverSelect.value && list[0]) coverSelect.value = list[0].id;
+}
+
+function renderCoverageList() {
+  if (!coverList) return;
+  const rows = (COVERAGE_CTX.list || []).slice().sort((a,b) => String(a.cover_start_date).localeCompare(String(b.cover_start_date)));
+  coverList.innerHTML = rows.map(c => `
+    <div class="cov-row">
+      <div class="cov-main">
+        <strong>${escapeHtml(c.cover_name || '')}</strong>
+        <span>${escapeHtml(c.cover_start_date)} → ${escapeHtml(c.cover_end_date)}</span>
+      </div>
+      <div class="cov-actions">
+        <button type="button" onclick="editCoverage('${c.id}')">Editar</button>
+        <button type="button" onclick="deleteCoverage('${c.id}')">Borrar</button>
+      </div>
+    </div>
+  `).join('');
+  if (coverEmpty) coverEmpty.classList.toggle('hidden', rows.length > 0);
+  if (!rows.length && coverEmpty) coverEmpty.textContent = 'Sin coberturas registradas.';
+}
+
+function setCoverageFormDefaults() {
+  const req = COVERAGE_CTX.request;
+  if (!req) return;
+  if (coverStart) coverStart.value = req.start_date || '';
+  if (coverEnd) coverEnd.value = req.end_date || '';
+  if (coverSelect && coverSelect.options.length) coverSelect.selectedIndex = 0;
+  COVERAGE_CTX.editingId = null;
+  if (coverSaveBtn) coverSaveBtn.textContent = 'Agregar cobertura';
+}
+
+async function loadCoverageRows(requestId) {
+  const { data, error } = await supabase.rpc('vacation_request_coverages_list', { p_request_id: requestId });
+  if (error) throw error;
+  COVERAGE_CTX.list = data || [];
+  COVERAGES_BY_REQ[requestId] = COVERAGE_CTX.list.slice();
+  renderCoverageList();
+}
+
+function openCoverageModalBase(requestLike, approveMode = false) {
+  COVERAGE_CTX.request = requestLike;
+  COVERAGE_CTX.approveMode = !!approveMode;
+  COVERAGE_CTX.changed = false;
+  COVERAGE_CTX.listCandidates = getCoverageCandidates(requestLike);
+  if (coverModalTitle) coverModalTitle.textContent = approveMode ? 'Autorizar y definir coberturas' : 'Coberturas';
+  if (coverModalMeta) {
+    const owner = EMP_BY_ID[requestLike.employee_id]?.nombre || 'Empleado';
+    coverModalMeta.textContent = `${owner} · ${requestLike.start_date} → ${requestLike.end_date}`;
+  }
+  renderCoverageOptions('');
+  setCoverageFormDefaults();
+  if (coverAuthorizeBtn) {
+    coverAuthorizeBtn.classList.toggle('hidden', !approveMode);
+    coverAuthorizeBtn.textContent = 'Confirmar autorización';
+  }
+  if (coverModalMsg) {
+    coverModalMsg.textContent = approveMode
+      ? 'Puedes autorizar sin cobertura o agregar una o varias coberturas por fechas antes de confirmar.'
+      : '';
+    coverModalMsg.className = 'msg';
+  }
+  coverModal.classList.remove('hidden');
+  coverModal.style.display = '';
+  coverModal.setAttribute('aria-hidden', 'false');
+}
+
+async function openCoverageModal(requestLike, approveMode = false) {
+  openCoverageModalBase(requestLike, approveMode);
+  try {
+    await loadCoverageRows(requestLike.id);
+    if (coverModalMsg && approveMode) {
+      coverModalMsg.textContent = 'Puedes autorizar sin cobertura o agregar una o varias coberturas por fechas antes de confirmar.';
+      coverModalMsg.className = 'msg';
+    }
+  } catch (err) {
+    if (coverModalMsg) {
+      coverModalMsg.textContent = 'Se abrió el modal, pero no se pudieron cargar coberturas previas: ' + (err?.message || err);
+      coverModalMsg.className = 'msg err';
+    }
+  }
+  if (coverSearch) coverSearch.focus();
+}
+
+async function closeCoverageModal() {
+  if (coverModal) {
+    coverModal.classList.add('hidden');
+    coverModal.style.display = '';
+    coverModal.setAttribute('aria-hidden', 'true');
+  }
+  if (coverSearch) coverSearch.value = '';
+  if (coverModalMsg) { coverModalMsg.textContent = ''; coverModalMsg.className = 'msg'; }
+  const shouldReload = COVERAGE_CTX.changed;
+  COVERAGE_CTX = { request: null, approveMode: false, editingId: null, changed: false, list: [], listCandidates: [] };
+  if (shouldReload) await loadVacations();
+}
+
+window.manageCoverages = async (id) => {
+  const req = (VAC_DATA || []).find(v => v.id === id);
+  if (!req) { alert('No se encontró la solicitud.'); return; }
+  await openCoverageModal(req, false);
+};
+
+window.editCoverage = (coverageId) => {
+  const cov = (COVERAGE_CTX.list || []).find(c => c.id === coverageId);
+  if (!cov) return;
+  COVERAGE_CTX.editingId = cov.id;
+  if (coverSelect) coverSelect.value = cov.cover_employee_id;
+  if (coverStart) coverStart.value = cov.cover_start_date;
+  if (coverEnd) coverEnd.value = cov.cover_end_date;
+  if (coverSaveBtn) coverSaveBtn.textContent = 'Actualizar cobertura';
+};
+
+window.deleteCoverage = async (coverageId) => {
+  if (!confirm('¿Borrar esta cobertura?')) return;
+  const { data, error } = await supabase.rpc('vacation_request_coverage_delete', { p_coverage_id: coverageId });
+  if (error || data !== true) {
+    if (coverModalMsg) {
+      coverModalMsg.textContent = 'No se pudo borrar la cobertura: ' + (error?.message || 'RPC devolvió falso');
+      coverModalMsg.className = 'msg err';
+    }
+    return;
+  }
+  COVERAGE_CTX.changed = true;
+  await loadCoverageRows(COVERAGE_CTX.request.id);
+  setCoverageFormDefaults();
+};
+
+async function saveCoverageFromModal() {
+  const req = COVERAGE_CTX.request;
+  if (!req) return;
+  const coverEmpId = (coverSelect?.value || '').trim();
+  const start = (coverStart?.value || '').trim();
+  const end = (coverEnd?.value || '').trim();
+
+  if (!coverEmpId || !start || !end) {
+    if (coverModalMsg) {
+      coverModalMsg.textContent = 'Selecciona colaborador y rango de fechas.';
+      coverModalMsg.className = 'msg err';
+    }
+    return;
+  }
+
+  const { data, error } = await supabase.rpc('vacation_request_coverage_save', {
+    p_coverage_id: COVERAGE_CTX.editingId || null,
+    p_request_id: req.id,
+    p_cover_employee_id: coverEmpId,
+    p_cover_start_date: start,
+    p_cover_end_date: end
+  });
+
+  if (error || !data) {
+    if (coverModalMsg) {
+      coverModalMsg.textContent = 'No se pudo guardar la cobertura: ' + (error?.message || 'RPC devolvió nulo');
+      coverModalMsg.className = 'msg err';
+    }
+    return;
+  }
+
+  COVERAGE_CTX.changed = true;
+  await loadCoverageRows(req.id);
+  setCoverageFormDefaults();
+  if (coverModalMsg) {
+    coverModalMsg.textContent = 'Cobertura guardada.';
+    coverModalMsg.className = 'msg ok';
+  }
+}
+
+async function authorizeFromModal() {
+  const req = COVERAGE_CTX.request;
+  if (!req) return;
+  if (!confirm('¿Autorizar esta solicitud?')) return;
+
   let okForce = false;
   try {
-    const { data, error } = await supabase.rpc("vacation_requests_approve_admin_force", { req_id: id });
+    const { data, error } = await supabase.rpc("vacation_requests_approve_admin_force", { req_id: req.id });
     if (!error && data === true) okForce = true;
-  } catch(_e) { /* puede no existir la función */ }
+  } catch(_e) { /* opcional */ }
 
   if (!okForce) {
-    // 2) Fallback a la autorización normal
-    const { data, error } = await supabase.rpc("vacation_requests_approve", { req_id: id });
-    if (error || data !== true) { alert("No se pudo autorizar: " + (error?.message || "RPC devolvió falso")); return; }
+    const { data, error } = await supabase.rpc("vacation_requests_approve", { req_id: req.id });
+    if (error || data !== true) {
+      if (coverModalMsg) {
+        coverModalMsg.textContent = 'No se pudo autorizar: ' + (error?.message || 'RPC devolvió falso');
+        coverModalMsg.className = 'msg err';
+      }
+      return;
+    }
+  }
+
+  COVERAGE_CTX.changed = true;
+  await closeCoverageModal();
+}
+
+if (coverSearch) {
+  coverSearch.addEventListener('input', () => renderCoverageOptions(coverSearch.value || ''));
+}
+if (coverSaveBtn) coverSaveBtn.addEventListener('click', saveCoverageFromModal);
+if (coverAuthorizeBtn) coverAuthorizeBtn.addEventListener('click', authorizeFromModal);
+if (coverCancelBtn) coverCancelBtn.addEventListener('click', () => { closeCoverageModal(); });
+if (coverModal) {
+  coverModal.addEventListener('click', (ev) => {
+    if (ev.target === coverModal) closeCoverageModal();
+  });
+}
+
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && coverModal && !coverModal.classList.contains('hidden')) {
+    closeCoverageModal();
+  }
+});
+
+window.openAuthorizeModalForRequest = async (id) => {
+  const req = (VAC_DATA || []).find(v => v.id === id);
+  if (!req) { alert('No se encontró la solicitud.'); return; }
+  await openCoverageModal(req, true);
+};
+
+
+window.authorize = window.openAuthorizeModalForRequest;
+window.preApprove = async (id) => {
+  if (!confirm('¿Marcar esta solicitud como pre-aprobada?')) return;
+  const { data, error } = await supabase.rpc('vacation_requests_preapprove', { req_id: id });
+  if (error || data !== true) {
+    alert('No se pudo pre-aprobar: ' + (error?.message || 'RPC devolvió falso'));
+    return;
+  }
+  await loadVacations();
+};
+
+window.backToPending = async (id) => {
+  if (!confirm('¿Regresar esta solicitud a Pendiente?')) return;
+  const { data, error } = await supabase.rpc('vacation_requests_mark_pending_admin', { req_id: id });
+  if (error || data !== true) {
+    alert('No se pudo regresar a Pendiente: ' + (error?.message || 'RPC devolvió falso'));
+    return;
   }
   await loadVacations();
 };
@@ -791,6 +1233,7 @@ async function loadEmployeesAdmin() {
   }
 
   EMP_DATA = data || [];
+  for (const e of EMP_DATA) EMP_BY_ID[e.id] = EMP_BY_ID[e.id] || e;
   renderEmployeesAdmin();
 }
 
@@ -1228,7 +1671,7 @@ if (vacCreateBtn) {
   });
 }
 
-// Crear y autorizar (BYPASS end-to-end si está disponible)
+// Crear y autorizar (pide cobertura obligatoria)
 if (vacCreateApproveBtn) {
   vacCreateApproveBtn.addEventListener("click", async ()=>{
     showVacMsg("");
@@ -1237,51 +1680,248 @@ if (vacCreateApproveBtn) {
     const e = (vacEnd?.value||"").trim();
     if (!empId || !s || !e) { showVacMsg("Falta empleado, inicio o fin.", false); return; }
 
-    // 1) Intentar create + approve en un paso con bypass
-    let createdId = null, usedBypass = false;
+    let createdId = null;
     try {
       const { data, error } = await supabase.rpc("vacation_requests_create_admin_force", {
-        emp_id: empId, s, e, auto_approve: true
+        emp_id: empId, s, e, auto_approve: false
       });
-      if (!error && data) {
-        createdId = data;
-        usedBypass = true;
-      }
+      if (!error && data) createdId = data;
     } catch(_e){ /* puede no existir */ }
 
     if (!createdId) {
-      // 2) Fallback a create normal
       const { data: newId, error: err1 } = await supabase.rpc("vacation_requests_create", {
         emp_id: empId, s, e
       });
       if (err1 || !newId) { showVacMsg("Error al crear: "+(err1?.message||"RPC devolvió nulo"), false); return; }
-
-      // 3) Intentar aprobar con bypass; si no existe, aprobar normal
-      let approved = false;
-      try {
-        const { data: okForce, error: errF } = await supabase.rpc("vacation_requests_approve_admin_force", { req_id: newId });
-        if (!errF && okForce === true) approved = true;
-      } catch(_e){ /* puede no existir */ }
-
-      if (!approved) {
-        const { data: ok, error: err2 } = await supabase.rpc("vacation_requests_approve", { req_id: newId });
-        if (err2 || ok !== true) { showVacMsg("Creado, pero no se pudo autorizar: "+(err2?.message||"RPC devolvió falso"), false); await loadVacations(); return; }
-      }
-
-      showVacMsg("Solicitud creada y autorizada.", true);
-      await loadVacations();
-      return;
+      createdId = newId;
     }
 
-    // Si se usó bypass one-shot:
-    if (usedBypass) {
-      showVacMsg("Solicitud creada y autorizada (forzada).", true);
-      await loadVacations();
-    }
+    await loadVacations();
+    const createdReq = (VAC_DATA || []).find(v => v.id === createdId) || { id: createdId, employee_id: empId, start_date: s, end_date: e, status: 'Pendiente' };
+    showVacMsg("Solicitud creada. Agrega coberturas si aplica y autoriza desde el modal.", true);
+    await openCoverageModal(createdReq, true);
   });
 }
 
 
+
+function setHolidayMsg(text, ok=true){
+  if (!holidayMsg) return;
+  holidayMsg.textContent = text || "";
+  holidayMsg.classList.remove("ok","err");
+  if (text) holidayMsg.classList.add(ok ? "ok" : "err");
+}
+
+function resetHolidayForm(){
+  HOLIDAY_EDIT_DATE = null;
+  if (holidayDesc) holidayDesc.value = "";
+  if (holidayStart) holidayStart.value = "";
+  if (holidayEnd) holidayEnd.value = "";
+  if (holidaySource) holidaySource.value = "admin";
+  if (holidaySaveBtn) holidaySaveBtn.textContent = "💾 Guardar feriado";
+  if (holidayCancelBtn) holidayCancelBtn.classList.add("hidden");
+}
+
+function renderHolidayRows(rows){
+  if (!holidayList) return;
+  const items = [...(rows || [])].sort((a,b)=> String(a.date || '').localeCompare(String(b.date || '')));
+  if (!items.length) {
+    holidayList.innerHTML = '<tr><td colspan="5" class="muted">Sin feriados capturados.</td></tr>';
+    return;
+  }
+  holidayList.innerHTML = items.map(r => {
+    const date = String(r.date || '');
+    const y = date.slice(0,4);
+    return `
+      <tr>
+        <td>${escapeHtml(date)}</td>
+        <td>${escapeHtml(r.name || '')}</td>
+        <td>${escapeHtml(r.source || '')}</td>
+        <td>${escapeHtml(y)}</td>
+        <td class="holiday-row-actions">
+          <button type="button" data-action="edit" data-date="${escapeHtml(date)}">✏️ Editar</button>
+          <button type="button" data-action="delete" data-date="${escapeHtml(date)}">🗑 Eliminar</button>
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+async function loadHolidaysAdmin(){
+  if (!holidayList) return;
+  holidayList.innerHTML = '<tr><td colspan="5">Cargando...</td></tr>';
+  const { data, error } = await supabase
+    .from('holidays')
+    .select('date,name,source')
+    .order('date', { ascending: true });
+  if (error) {
+    renderHolidayRows([]);
+    setHolidayMsg('Error al cargar feriados: ' + error.message, false);
+    return;
+  }
+  renderHolidayRows(data || []);
+}
+
+function editHoliday(date, name, source){
+  HOLIDAY_EDIT_DATE = date;
+  if (holidayDesc) holidayDesc.value = name || '';
+  if (holidayStart) holidayStart.value = date || '';
+  if (holidayEnd) holidayEnd.value = date || '';
+  if (holidaySource) holidaySource.value = source || 'admin';
+  if (holidaySaveBtn) holidaySaveBtn.textContent = '💾 Actualizar feriado';
+  if (holidayCancelBtn) holidayCancelBtn.classList.remove('hidden');
+  setHolidayMsg('Editando feriado ' + date, true);
+}
+
+async function deleteHoliday(date){
+  if (!date) return;
+  if (!confirm(`¿Eliminar feriado ${date}?`)) return;
+  const { error } = await supabase.from('holidays').delete().eq('date', date);
+  if (error) { setHolidayMsg('No se pudo eliminar: ' + error.message, false); return; }
+  setHolidayMsg('Feriado eliminado.', true);
+  if (HOLIDAY_EDIT_DATE === date) resetHolidayForm();
+  await loadHolidaysAdmin();
+}
+
+async function saveHolidayForm(){
+  const desc = (holidayDesc?.value || '').trim();
+  const s = holidayStart?.value || '';
+  const e = holidayEnd?.value || '';
+  const source = (holidaySource?.value || 'admin').trim() || 'admin';
+  if (!desc || !s || !e) { setHolidayMsg('Captura descripción, fecha inicio y fecha fin.', false); return; }
+  if (e < s) { setHolidayMsg('La fecha fin no puede ser menor a la fecha inicio.', false); return; }
+
+  try {
+    if (HOLIDAY_EDIT_DATE) {
+      if (s !== e) { setHolidayMsg('La edición actual es por día. Para un rango, elimina y vuelve a capturarlo.', false); return; }
+      if (HOLIDAY_EDIT_DATE !== s) {
+        const { error: delErr } = await supabase.from('holidays').delete().eq('date', HOLIDAY_EDIT_DATE);
+        if (delErr) { setHolidayMsg('No se pudo preparar la actualización: ' + delErr.message, false); return; }
+      }
+      const { error: upErr } = await supabase.from('holidays').upsert([{ date: s, name: desc, source }], { onConflict: 'date' });
+      if (upErr) { setHolidayMsg('No se pudo actualizar: ' + upErr.message, false); return; }
+      setHolidayMsg('Feriado actualizado.', true);
+      resetHolidayForm();
+      await loadHolidaysAdmin();
+      return;
+    }
+
+    const rows = [];
+    let d = new Date(s + 'T00:00:00');
+    const end = new Date(e + 'T00:00:00');
+    while (d <= end) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth()+1).padStart(2,'0');
+      const dd = String(d.getDate()).padStart(2,'0');
+      rows.push({ date: `${y}-${m}-${dd}`, name: desc, source });
+      d.setDate(d.getDate()+1);
+    }
+    const { error } = await supabase.from('holidays').upsert(rows, { onConflict: 'date' });
+    if (error) { setHolidayMsg('No se pudo guardar: ' + error.message, false); return; }
+    setHolidayMsg(rows.length === 1 ? 'Feriado guardado.' : `Rango guardado: ${rows.length} días.`, true);
+    resetHolidayForm();
+    await loadHolidaysAdmin();
+  } catch (e) {
+    setHolidayMsg('Error inesperado: ' + (e?.message || e), false);
+  }
+}
+
+function setBlackoutMsg(text, ok=true){
+  if (!blackoutMsg) return;
+  blackoutMsg.textContent = text || "";
+  blackoutMsg.classList.remove("ok","err");
+  if (text) blackoutMsg.classList.add(ok ? "ok" : "err");
+}
+
+function resetBlackoutForm(){
+  BLACKOUT_EDIT_ID = null;
+  if (blackoutDesc) blackoutDesc.value = "";
+  if (blackoutDate) blackoutDate.value = "";
+  if (blackoutActive) blackoutActive.value = "true";
+  if (blackoutSaveBtn) blackoutSaveBtn.textContent = "💾 Guardar fecha bloqueada";
+  if (blackoutCancelBtn) blackoutCancelBtn.classList.add("hidden");
+}
+
+function renderBlackoutRows(rows){
+  if (!blackoutList) return;
+  const items = [...(rows || [])].sort((a,b)=> String(a.date || '').localeCompare(String(b.date || '')));
+  if (!items.length) {
+    blackoutList.innerHTML = '<tr><td colspan="4" class="muted">Sin fechas bloqueadas capturadas.</td></tr>';
+    return;
+  }
+  blackoutList.innerHTML = items.map(r => `
+    <tr>
+      <td>${escapeHtml(String(r.date || ''))}</td>
+      <td>${escapeHtml(r.description || '')}</td>
+      <td>${r.active ? 'Sí' : 'No'}</td>
+      <td class="blackout-row-actions">
+        <button type="button" data-action="edit" data-id="${escapeHtml(r.id)}">✏️ Editar</button>
+        <button type="button" data-action="delete" data-id="${escapeHtml(r.id)}">🗑 Eliminar</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function loadBlackoutsAdmin(){
+  if (!blackoutList) return;
+  blackoutList.innerHTML = '<tr><td colspan="4">Cargando...</td></tr>';
+  const { data, error } = await supabase
+    .from('vacation_blackout_dates')
+    .select('id,date,description,active')
+    .order('date', { ascending: true });
+  if (error) {
+    renderBlackoutRows([]);
+    setBlackoutMsg('Error al cargar fechas bloqueadas: ' + error.message, false);
+    return;
+  }
+  renderBlackoutRows(data || []);
+}
+
+async function editBlackout(id){
+  const { data, error } = await supabase
+    .from('vacation_blackout_dates')
+    .select('id,date,description,active')
+    .eq('id', id)
+    .maybeSingle();
+  if (error || !data) {
+    setBlackoutMsg('No se pudo cargar la fecha bloqueada.', false);
+    return;
+  }
+  BLACKOUT_EDIT_ID = data.id;
+  if (blackoutDesc) blackoutDesc.value = data.description || '';
+  if (blackoutDate) blackoutDate.value = data.date || '';
+  if (blackoutActive) blackoutActive.value = data.active ? 'true' : 'false';
+  if (blackoutSaveBtn) blackoutSaveBtn.textContent = '💾 Actualizar fecha bloqueada';
+  if (blackoutCancelBtn) blackoutCancelBtn.classList.remove('hidden');
+  setBlackoutMsg('Editando fecha bloqueada ' + data.date, true);
+}
+
+async function deleteBlackout(id){
+  if (!id) return;
+  if (!confirm('¿Eliminar fecha bloqueada?')) return;
+  const { error } = await supabase.from('vacation_blackout_dates').delete().eq('id', id);
+  if (error) { setBlackoutMsg('No se pudo eliminar: ' + error.message, false); return; }
+  setBlackoutMsg('Fecha bloqueada eliminada.', true);
+  if (BLACKOUT_EDIT_ID === id) resetBlackoutForm();
+  await loadBlackoutsAdmin();
+}
+
+async function saveBlackoutForm(){
+  const description = (blackoutDesc?.value || '').trim();
+  const date = blackoutDate?.value || '';
+  const active = String(blackoutActive?.value || 'true') === 'true';
+  if (!description || !date) { setBlackoutMsg('Captura descripción y fecha.', false); return; }
+
+  const payload = { date, description, active };
+  let error = null;
+  if (BLACKOUT_EDIT_ID) {
+    ({ error } = await supabase.from('vacation_blackout_dates').update(payload).eq('id', BLACKOUT_EDIT_ID));
+  } else {
+    ({ error } = await supabase.from('vacation_blackout_dates').insert([payload]));
+  }
+  if (error) { setBlackoutMsg('No se pudo guardar: ' + error.message, false); return; }
+  setBlackoutMsg(BLACKOUT_EDIT_ID ? 'Fecha bloqueada actualizada.' : 'Fecha bloqueada guardada.', true);
+  resetBlackoutForm();
+  await loadBlackoutsAdmin();
+}
 
 // ─────────────────────────────────────────────────────────────
 // UI: Tabs (para evitar pantalla larga)
@@ -1292,6 +1932,8 @@ if (vacCreateApproveBtn) {
     "solicitudes": document.getElementById("tab-solicitudes"),
     "alta-vac": document.getElementById("tab-alta-vac"),
     "colaboradores": document.getElementById("tab-colaboradores"),
+    "feriados": document.getElementById("tab-feriados"),
+    "blackouts": document.getElementById("tab-blackouts"),
   };
 
   function showModule(key){
@@ -1303,6 +1945,9 @@ if (vacCreateApproveBtn) {
       else el.setAttribute("aria-hidden","false");
     });
     tabs.forEach(b => b.classList.toggle("active", b.dataset.tab === key));
+
+    if (key === "feriados") loadHolidaysAdmin();
+    if (key === "blackouts") loadBlackoutsAdmin();
 
     // Fix: cuando cambias de módulo, recalcula layout si hay algo sticky
     window.dispatchEvent(new Event("resize"));
@@ -1349,3 +1994,48 @@ if (vacCreateApproveBtn) {
   else mqTablet.addListener(apply);
   window.addEventListener("resize", apply);
 })();
+
+
+if (holidaySaveBtn) holidaySaveBtn.addEventListener("click", saveHolidayForm);
+if (holidayRefreshBtn) holidayRefreshBtn.addEventListener("click", loadHolidaysAdmin);
+if (holidayCancelBtn) holidayCancelBtn.addEventListener("click", () => { resetHolidayForm(); setHolidayMsg("", true); });
+if (holidayList) holidayList.addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('button[data-action]');
+  if (!btn) return;
+  const action = btn.dataset.action;
+  const date = btn.dataset.date;
+  const tr = btn.closest('tr');
+  const tds = tr ? tr.querySelectorAll('td') : [];
+  const name = tds[1]?.textContent || '';
+  const source = tds[2]?.textContent || '';
+  if (action === 'edit') editHoliday(date, name, source);
+  if (action === 'delete') await deleteHoliday(date);
+});
+
+document.addEventListener("DOMContentLoaded", async () => {
+  await syncAdminState();
+});
+
+supabase.auth.onAuthStateChange(async (_event, session) => {
+  if (!session) {
+    errorMsg.textContent = "";
+    adminPanel.classList.add("hidden");
+    loginScreen.classList.remove("hidden");
+    return;
+  }
+
+  await syncAdminState();
+});
+
+
+if (blackoutSaveBtn) blackoutSaveBtn.addEventListener("click", saveBlackoutForm);
+if (blackoutRefreshBtn) blackoutRefreshBtn.addEventListener("click", loadBlackoutsAdmin);
+if (blackoutCancelBtn) blackoutCancelBtn.addEventListener("click", () => { resetBlackoutForm(); setBlackoutMsg("", true); });
+if (blackoutList) blackoutList.addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('button[data-action]');
+  if (!btn) return;
+  const action = btn.dataset.action;
+  const id = btn.dataset.id;
+  if (action === 'edit') await editBlackout(id);
+  if (action === 'delete') await deleteBlackout(id);
+});

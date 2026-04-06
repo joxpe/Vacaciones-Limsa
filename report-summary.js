@@ -22,9 +22,19 @@ const $kTodaySub = document.getElementById('kpi-today-sub');
 const $kNext7 = document.getElementById('kpi-next7');
 const $kPend = document.getElementById('kpi-pend');
 const $kAppr = document.getElementById('kpi-appr');
+const $kCupoTotal = document.getElementById('kpi-cupo-total');
+const $kCupoTotalSub = document.getElementById('kpi-cupo-total-sub');
+const $kRestantes = document.getElementById('kpi-restantes');
+const $kRestantesSub = document.getElementById('kpi-restantes-sub');
+const $kSinProgramar = document.getElementById('kpi-sin-programar');
+const $kSinProgramarSub = document.getElementById('kpi-sin-programar-sub');
+const $kCuposPend = document.getElementById('kpi-cupos-pend');
+const $kCuposPendSub = document.getElementById('kpi-cupos-pend-sub');
 
 const $todayList    = document.getElementById('today-list');
 const $upcomingList = document.getElementById('upcoming-list');
+const $unscheduledList = document.getElementById('unscheduled-list');
+const $balancePendingList = document.getElementById('balance-pending-list');
 const $weekBody     = document.querySelector('#week-table tbody');
 const $monthBody    = document.querySelector('#month-table tbody');
 
@@ -83,7 +93,7 @@ function uniqSorted(arr){
   return Array.from(new Set(arr.filter(Boolean))).sort(coll.compare);
 }
 function initialStatusBadge(status){
-  const cls = status === 'Aprobado' ? 'badge auth' : status === 'Pendiente' ? 'badge pend' : 'badge';
+  const cls = status === 'Aprobado' ? 'badge auth' : status === 'Pre-aprobado' ? 'badge pre' : status === 'Pendiente' ? 'badge pend' : 'badge';
   return `<span class="${cls}">${status}</span>`;
 }
 
@@ -93,6 +103,7 @@ function initialStatusBadge(status){
 let EMP = [];            // employees_public_v2
 let EMP_BY_ID = {};      // id -> employee
 let CACHE_MONTH = new Map(); // key yyyy-mm -> rows
+let SUMMARY_CACHE = new Map(); // emp_id -> resumen 2026
 
 async function loadEmployees(){
   const rpc = await supabase.rpc('employees_public_v2');
@@ -342,6 +353,99 @@ function syncDateInputsWithRange(){
   setRangeUI(from, to, false);
 }
 
+
+function yearStartUTC(year){ return new Date(Date.UTC(year, 0, 1)); }
+function yearEndUTC(year){ return new Date(Date.UTC(year, 11, 31)); }
+function num(v){ return Number.isFinite(Number(v)) ? Number(v) : 0; }
+function selectedEmployeeIds(){
+  const q = normTxt($q.value);
+  const bod = $bodega.value;
+  const dep = $depto.value;
+  const loc = $loc.value;
+  const ids = [];
+  for (const e of EMP){
+    const b = (e.bodega ?? '(Sin bodega)');
+    const d = (e.departamento ?? '');
+    const l = (e.localizacion ?? '');
+    const name = (e.nombre ?? '');
+    if (bod && b !== bod) continue;
+    if (dep && d !== dep) continue;
+    if (loc && l !== loc) continue;
+    if (q && !normTxt(name).includes(q)) continue;
+    ids.push(e.id);
+  }
+  return ids;
+}
+
+function buildSummaryFallback(empId){
+  const e = EMP_BY_ID[empId] || {};
+  return {
+    employee_id: empId,
+    nombre: e.nombre ?? '(Sin nombre)',
+    bodega: e.bodega ?? null,
+    departamento: e.departamento ?? null,
+    localizacion: e.localizacion ?? null,
+    cupo_2026: 0,
+    usado_2026: 0,
+    restante_2026: 0,
+    cupo_visible: 0,
+    restante_visible: 0
+  };
+}
+
+async function loadSummariesForEmployees(empIds){
+  const uniqueIds = Array.from(new Set((empIds || []).filter(Boolean)));
+  const missing = uniqueIds.filter(id => !SUMMARY_CACHE.has(id));
+  if (missing.length){
+    const loaded = await Promise.all(missing.map(async (empId) => {
+      try {
+        const { data, error } = await supabase.rpc('employees_vac_summary_2026', { emp_id: empId });
+        if (error) throw error;
+        const row = (Array.isArray(data) && data[0]) ? data[0] : {};
+        SUMMARY_CACHE.set(empId, { ...buildSummaryFallback(empId), ...row, employee_id: empId });
+      } catch (_err) {
+        SUMMARY_CACHE.set(empId, buildSummaryFallback(empId));
+      }
+    }));
+    void loaded;
+  }
+  return uniqueIds.map(id => SUMMARY_CACHE.get(id) || buildSummaryFallback(id));
+}
+
+function renderEmployeeSummaryList($root, items, emptyText){
+  if (!items || items.length === 0) {
+    $root.innerHTML = `<div class="empty">${emptyText}</div>`;
+    return;
+  }
+
+  $root.innerHTML = items.map(row => {
+    const meta = [
+      row.bodega ? `🏬 ${row.bodega}` : null,
+      row.departamento ? `🧩 ${row.departamento}` : null,
+      row.localizacion ? `📍 ${row.localizacion}` : null
+    ].filter(Boolean).join(' · ');
+
+    const extra = [
+      `Cupo: ${num(row.cupo_visible)}`,
+      `Usado: ${num(row.usado_2026)}`,
+      `Restante: ${num(row.restante_visible)}`
+    ].join(' · ');
+
+    const hasPendingReq = row.hasPendingRequest ? '<span class="badge pend mini-badge">Solicitud pendiente</span>' : '';
+    const hasPreReq = row.hasPreapprovedRequest ? '<span class="badge pre mini-badge">Solicitud pre-aprobada</span>' : '';
+    return `
+      <div class="item">
+        <div class="top">
+          <div class="name">${row.nombre}</div>
+          <div>${hasPendingReq}${hasPreReq}</div>
+        </div>
+        <div class="meta">${extra}</div>
+        <div class="meta">${meta || 'Sin información adicional'}</div>
+      </div>
+    `;
+  }).join('');
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Render
 // ─────────────────────────────────────────────────────────────────────────────
@@ -378,6 +482,7 @@ function renderWeekTable(weekRows){
         <td>${fmtShort(r.from)} → ${fmtShort(r.to)}</td>
         <td>${r.peak}</td>
         <td>${r.appr}</td>
+        <td>${r.pre}</td>
         <td>${r.pend}</td>
       </tr>
     `;
@@ -390,6 +495,7 @@ function renderMonthTable(monthRows){
       <tr>
         <td><strong>${r.label}</strong></td>
         <td>${r.appr}</td>
+        <td>${r.pre}</td>
         <td>${r.pend}</td>
         <td>${r.peak}</td>
       </tr>
@@ -418,15 +524,57 @@ async function refresh(){
     const allBlocks = buildBlocks(rangeRows);
     const blocks = applyFiltersToBlocks(allBlocks);
 
+    const employeeIds = selectedEmployeeIds();
+    const annualYear = 2026;
+    const annualRows = await loadRangeRows(yearStartUTC(annualYear), yearEndUTC(annualYear));
+    const annualBlocksAll = buildBlocks(annualRows);
+    const annualBlocksByEmp = new Map();
+    for (const block of annualBlocksAll){
+      if (!annualBlocksByEmp.has(block.employee_id)) annualBlocksByEmp.set(block.employee_id, []);
+      annualBlocksByEmp.get(block.employee_id).push(block);
+    }
+
+    const summaries = await loadSummariesForEmployees(employeeIds);
+    const summariesEnriched = summaries.map(s => {
+      const empBlocks = annualBlocksByEmp.get(s.employee_id) || [];
+      const hasAnyProgrammed = empBlocks.length > 0;
+      const hasPendingRequest = empBlocks.some(b => b.status === 'Pendiente');
+      const hasPreapprovedRequest = empBlocks.some(b => b.status === 'Pre-aprobado');
+      return {
+        ...buildSummaryFallback(s.employee_id),
+        ...s,
+        hasAnyProgrammed,
+        hasPendingRequest,
+        hasPreapprovedRequest
+      };
+    });
+
+    const totalCupo = summariesEnriched.reduce((acc, r) => acc + num(r.cupo_visible), 0);
+    const totalUsado = summariesEnriched.reduce((acc, r) => acc + num(r.usado_2026), 0);
+    const totalRestante = summariesEnriched.reduce((acc, r) => acc + num(r.restante_visible), 0);
+
+    const unscheduledEmployees = summariesEnriched
+      .filter(r => num(r.restante_visible) > 0 && !r.hasAnyProgrammed)
+      .sort((a,b) => a.nombre.localeCompare(b.nombre, 'es-MX'));
+
+    const pendingBalanceEmployees = summariesEnriched
+      .filter(r => num(r.restante_visible) > 0)
+      .sort((a,b) => {
+        const diff = num(b.restante_visible) - num(a.restante_visible);
+        if (diff !== 0) return diff;
+        return a.nombre.localeCompare(b.nombre, 'es-MX');
+      });
+
     // KPI: hoy
     const t = todayUTC();
     const todayISO = ymd(t);
     const todayBlocks = blocks.filter(b => b.start <= todayISO && b.end >= todayISO);
     const todayApproved = todayBlocks.filter(b => b.status === 'Aprobado').length;
+    const todayPreapproved = todayBlocks.filter(b => b.status === 'Pre-aprobado').length;
     const todayPending = todayBlocks.filter(b => b.status === 'Pendiente').length;
 
     $kToday.textContent = String(todayBlocks.length);
-    $kTodaySub.textContent = `${todayApproved} aprobada(s) · ${todayPending} pendiente(s)`;
+    $kTodaySub.textContent = `${todayApproved} aprobada(s) · ${todayPreapproved} pre-aprobada(s) · ${todayPending} pendiente(s)`;
 
     // KPI: salen en 7 días (inician)
     const next7To = addDaysUTC(t, 6);
@@ -439,9 +587,20 @@ async function refresh(){
     const toISO = ymd(to);
     const startsInRange = blocks.filter(b => b.start >= fromISO && b.start <= toISO);
     const pend = startsInRange.filter(b => b.status === 'Pendiente').length;
+    const pre = startsInRange.filter(b => b.status === 'Pre-aprobado').length;
     const appr = startsInRange.filter(b => b.status === 'Aprobado').length;
     $kPend.textContent = String(pend);
+    document.getElementById('kpi-pre').textContent = String(pre);
     $kAppr.textContent = String(appr);
+
+    $kCupoTotal.textContent = String(totalCupo);
+    $kCupoTotalSub.textContent = `${totalUsado} usado(s) · ${totalRestante} restante(s)`;
+    $kRestantes.textContent = String(totalRestante);
+    $kRestantesSub.textContent = `${summariesEnriched.length} colaborador(es) filtrado(s)`;
+    $kSinProgramar.textContent = String(unscheduledEmployees.length);
+    $kSinProgramarSub.textContent = `${unscheduledEmployees.reduce((acc, r) => acc + num(r.restante_visible), 0)} día(s) por programar`;
+    $kCuposPend.textContent = String(pendingBalanceEmployees.length);
+    $kCuposPendSub.textContent = `${pendingBalanceEmployees.filter(r => r.hasPendingRequest).length} pendiente(s) · ${pendingBalanceEmployees.filter(r => r.hasPreapprovedRequest).length} pre-aprobada(s)`;
 
     // Listas
     renderList($todayList,
@@ -455,6 +614,9 @@ async function refresh(){
       .slice(0, 40);
 
     renderList($upcomingList, upcoming, 'No hay próximas salidas en el rango/filtros actuales.');
+
+    renderEmployeeSummaryList($unscheduledList, unscheduledEmployees, 'Nadie tiene saldo pendiente sin programar con los filtros actuales.');
+    renderEmployeeSummaryList($balancePendingList, pendingBalanceEmployees.slice(0, 60), 'No hay colaboradores con saldo pendiente en los filtros actuales.');
 
     // Resumen semanal: próximas 8 semanas (pico fuera) + aprobadas/pendientes que inician en esa semana
     // Para esto necesitamos un rango ampliado (hoy → +8 semanas)
@@ -503,6 +665,7 @@ async function refresh(){
 
       // bloques que inician en esa semana
       const apprW = weekBlocks.filter(b => b.status === 'Aprobado' && b.start >= wsISO && b.start <= weISO).length;
+      const preW = weekBlocks.filter(b => b.status === 'Pre-aprobado' && b.start >= wsISO && b.start <= weISO).length;
       const pendW = weekBlocks.filter(b => b.status === 'Pendiente' && b.start >= wsISO && b.start <= weISO).length;
 
       weeks.push({
@@ -511,6 +674,7 @@ async function refresh(){
         to: weISO,
         peak,
         appr: apprW,
+        pre: preW,
         pend: pendW
       });
     }
@@ -549,6 +713,7 @@ async function refresh(){
 
       const mBlocks = buildBlocks(filtered);
       const apprM = mBlocks.filter(b => b.status === 'Aprobado').length;
+      const preM = mBlocks.filter(b => b.status === 'Pre-aprobado').length;
       const pendM = mBlocks.filter(b => b.status === 'Pendiente').length;
 
       const c = dayCounts(filtered);
@@ -558,6 +723,7 @@ async function refresh(){
       monthRows.push({
         label: fmtMonthKey(m),
         appr: apprM,
+        pre: preM,
         pend: pendM,
         peak
       });

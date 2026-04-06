@@ -47,10 +47,11 @@
 
       <div class="legend">
         <span class="badge pend">Pendiente</span>
+        <span class="badge pre">Pre-aprobada</span>
         <span class="badge auth">Autorizada</span>
         <span class="badge many">Alta concurrencia</span>
         <span class="badge holiday">No se trabaja (feriado)</span>
-        <span class="badge buenfin">Buen Fin</span>
+        <span class="badge buenfin">Fecha bloqueada (usa la descripción capturada)</span>
       </div>
     </div>
 
@@ -75,11 +76,8 @@
   </div>
 
   <!-- Supabase -->
-  <script>
-    window.SUPABASE_URL = "https://kbasekvgsevtwjypzznz.supabase.co";
-    window.SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtiYXNla3Znc2V2dHdqeXB6em56Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIwNTg3NjUsImV4cCI6MjA3NzYzNDc2NX0.a38X1iS6xhlcoVlrjQ99BcoiVf9REMuVzYR82wYnWHY";
-  </script>
+  <script src="supabase-config.js"></script>
   <script type="module" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm"></script>
-  <script type="module" src="manager-calendar.js?v=2026.12.29-bods-by-loc-or-depto"></script>
+  <script type="module" src="manager-calendar.js?v=blackout-calendar-20260406-2"></script>
 </body>
 </html>
