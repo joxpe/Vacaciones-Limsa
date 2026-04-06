@@ -177,17 +177,14 @@ const vacStart       = $("#vac-start");
 const vacEnd         = $("#vac-end");
 
 
-// Default: al seleccionar fecha de inicio, poner fin = +3 días (como en index)
+// Default: al seleccionar fecha de inicio, usar el mismo día si no hay fin capturado.
 if (vacStart && vacEnd) {
   vacStart.addEventListener("change", () => {
-    const s = vacStart.value;
+    const s = (vacStart.value || '').trim();
     if (!s) return;
-    const currentEnd = vacEnd.value;
-    const suggested = addDaysISO(s, 3);
-
-    // Si no hay fin o el fin es anterior al inicio, ajusta automáticamente
+    const currentEnd = (vacEnd.value || '').trim();
     if (!currentEnd || currentEnd < s) {
-      vacEnd.value = suggested;
+      vacEnd.value = s;
     }
   });
 }
@@ -1605,6 +1602,7 @@ if (vacEmpSearch) {
         item.addEventListener("click", ()=>{
           vacEmpId.value = item.getAttribute("data-id");
           vacEmpSearch.value = item.getAttribute("data-name");
+          vacEmpSearch.dataset.selectedName = item.getAttribute("data-name") || '';
           vacEmpSuggest.innerHTML="";
         });
       });
@@ -1633,41 +1631,79 @@ window.empQuickVacation = (id, nombre) => {
   if (!vacEmpId || !vacEmpSearch) return;
   vacEmpId.value = id;
   vacEmpSearch.value = nombre || "";
+  vacEmpSearch.dataset.selectedName = nombre || "";
   vacEmpSearch.focus();
   showVacMsg(`Empleado seleccionado: ${nombre}`, true);
 };
+
+function setVacActionBusy(isBusy, label) {
+  if (vacCreateBtn) vacCreateBtn.disabled = !!isBusy;
+  if (vacCreateApproveBtn) {
+    vacCreateApproveBtn.disabled = !!isBusy;
+    vacCreateApproveBtn.textContent = isBusy ? (label || 'Guardando...') : '✅ Crear y autorizar';
+  }
+}
+
+function resolveSelectedEmployeeId() {
+  const direct = (vacEmpId?.value || '').trim();
+  if (direct) return direct;
+  const typed = (vacEmpSearch?.value || '').trim().toLowerCase();
+  if (!typed) return '';
+  const exact = (EMP_DATA || []).find(e => String(e.nombre || '').trim().toLowerCase() === typed);
+  return exact?.id || '';
+}
+
+async function createVacationRequestFromForm() {
+  const empId = resolveSelectedEmployeeId();
+  const s = (vacStart?.value || '').trim();
+  const e = (vacEnd?.value || '').trim();
+  if (!empId || !s || !e) throw new Error('Falta empleado, inicio o fin.');
+  if (e < s) throw new Error('La fecha fin no puede ser menor a la inicial.');
+
+  let createdId = null;
+  let lastErr = null;
+  try {
+    const { data, error } = await supabase.rpc('vacation_requests_create_admin_force', {
+      emp_id: empId, s, e, auto_approve: false
+    });
+    if (error) lastErr = error;
+    if (!error && data) createdId = data;
+  } catch (e1) {
+    lastErr = e1;
+  }
+
+  if (!createdId) {
+    const { data, error } = await supabase.rpc('vacation_requests_create', { emp_id: empId, s, e });
+    if (error || !data) throw (error || lastErr || new Error('RPC devolvió nulo'));
+    createdId = data;
+  }
+
+  const selectedName = (vacEmpSearch?.dataset.selectedName || vacEmpSearch?.value || '').trim();
+  return {
+    id: createdId,
+    employee_id: empId,
+    start_date: s,
+    end_date: e,
+    status: 'Pendiente',
+    employee_name: selectedName
+  };
+}
 
 // Crear pendiente (BYPASS si está disponible)
 if (vacCreateBtn) {
   vacCreateBtn.addEventListener("click", async ()=>{
     showVacMsg("");
-    const empId = (vacEmpId?.value||"").trim();
-    const s = (vacStart?.value||"").trim();
-    const e = (vacEnd?.value||"").trim();
-    if (!empId || !s || !e) { showVacMsg("Falta empleado, inicio o fin.", false); return; }
-
-    // 1) Intentar bypass
-    let createdId = null;
+    setVacActionBusy(true, 'Guardando...');
     try {
-      const { data, error } = await supabase.rpc("vacation_requests_create_admin_force", {
-        emp_id: empId, s, e, auto_approve: false
-      });
-      if (!error && data) {
-        createdId = data;
-      }
-    } catch(_e){ /* puede no existir */ }
-
-    if (!createdId) {
-      // 2) Fallback a create normal
-      const { data, error } = await supabase.rpc("vacation_requests_create", {
-        emp_id: empId, s, e
-      });
-      if (error || !data) { showVacMsg("Error al crear: "+(error?.message||"RPC devolvió nulo"), false); return; }
-      createdId = data;
+      await createVacationRequestFromForm();
+      showVacMsg("Solicitud creada (Pendiente).", true);
+      await loadVacations();
+    } catch (err) {
+      console.error('Error al crear solicitud pendiente', err);
+      showVacMsg("Error al crear: " + (err?.message || err), false);
+    } finally {
+      setVacActionBusy(false);
     }
-
-    showVacMsg("Solicitud creada (Pendiente).", true);
-    await loadVacations();
   });
 }
 
@@ -1675,31 +1711,18 @@ if (vacCreateBtn) {
 if (vacCreateApproveBtn) {
   vacCreateApproveBtn.addEventListener("click", async ()=>{
     showVacMsg("");
-    const empId = (vacEmpId?.value||"").trim();
-    const s = (vacStart?.value||"").trim();
-    const e = (vacEnd?.value||"").trim();
-    if (!empId || !s || !e) { showVacMsg("Falta empleado, inicio o fin.", false); return; }
-
-    let createdId = null;
+    setVacActionBusy(true, 'Guardando...');
     try {
-      const { data, error } = await supabase.rpc("vacation_requests_create_admin_force", {
-        emp_id: empId, s, e, auto_approve: false
-      });
-      if (!error && data) createdId = data;
-    } catch(_e){ /* puede no existir */ }
-
-    if (!createdId) {
-      const { data: newId, error: err1 } = await supabase.rpc("vacation_requests_create", {
-        emp_id: empId, s, e
-      });
-      if (err1 || !newId) { showVacMsg("Error al crear: "+(err1?.message||"RPC devolvió nulo"), false); return; }
-      createdId = newId;
+      const createdReq = await createVacationRequestFromForm();
+      showVacMsg("Solicitud creada. Agrega coberturas si aplica y autoriza desde el modal.", true);
+      await openCoverageModal(createdReq, true);
+      loadVacations().catch(err => console.error('Error recargando vacaciones tras crear y autorizar', err));
+    } catch (err) {
+      console.error('Error al crear solicitud para autorizar', err);
+      showVacMsg("Error al crear: " + (err?.message || err), false);
+    } finally {
+      setVacActionBusy(false);
     }
-
-    await loadVacations();
-    const createdReq = (VAC_DATA || []).find(v => v.id === createdId) || { id: createdId, employee_id: empId, start_date: s, end_date: e, status: 'Pendiente' };
-    showVacMsg("Solicitud creada. Agrega coberturas si aplica y autoriza desde el modal.", true);
-    await openCoverageModal(createdReq, true);
   });
 }
 

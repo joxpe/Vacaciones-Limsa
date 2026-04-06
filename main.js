@@ -106,6 +106,48 @@ function yearsMonthsLabel(fromISO, toDate = new Date()){
   return `${years}.${String(months).padStart(2, '0')}`;
 }
 
+
+function countDaysInclusive(startISO, endISO){
+  if(!startISO || !endISO) return 0;
+  const a = new Date(startISO + 'T00:00:00');
+  const b = new Date(endISO + 'T00:00:00');
+  if (isNaN(a) || isNaN(b) || b < a) return 0;
+  const ms = b.getTime() - a.getTime();
+  return Math.floor(ms / 86400000) + 1;
+}
+
+async function loadEmployeeVacationRows(empId){
+  const rpc = await supabase.rpc('vacation_requests_get', { emp_id: empId });
+  if(!rpc.error && Array.isArray(rpc.data)) return rpc.data;
+
+  const fb = await supabase
+    .from('vacation_requests')
+    .select('id, employee_id, start_date, end_date, status, created_at, biz_days')
+    .eq('employee_id', empId)
+    .gte('start_date', '2026-01-01')
+    .lte('end_date', '2026-12-31')
+    .order('start_date', { ascending: true });
+
+  if (fb.error) throw fb.error;
+  return fb.data || [];
+}
+
+function computeVisibleRemaining(summary, rows){
+  const cupoVis = (typeof summary?.cupo_visible === 'number')
+    ? summary.cupo_visible
+    : (summary?.cupo_2026 ?? 0);
+
+  const discountStatuses = new Set(['Pendiente', 'Pre-aprobado', 'Aprobado']);
+  let discountedDays = 0;
+  for (const r of (rows || [])) {
+    if (!discountStatuses.has(String(r?.status || '').trim())) continue;
+    const biz = Number(r?.biz_days);
+    discountedDays += Number.isFinite(biz) && biz > 0 ? biz : countDaysInclusive(r?.start_date, r?.end_date);
+  }
+
+  return Math.max(0, cupoVis - discountedDays);
+}
+
 function lastDayOfMonth(date){
   return new Date(date.getFullYear(), date.getMonth() + 1, 0);
 }
@@ -194,6 +236,13 @@ async function loadEmployeeInfo(empId){
     cupo_2026: 0, usado_2026: 0, restante_2026: 0, elegible_desde: null, restante_visible: 0, cupo_visible: 0
   };
 
+  let requestRows = [];
+  try {
+    requestRows = await loadEmployeeVacationRows(empId);
+  } catch (_e) {
+    requestRows = [];
+  }
+
   $loc.textContent      = info?.localizacion ?? '-';
   $dep.textContent      = info?.departamento ?? '-';
   $bod.textContent      = info?.bodega ?? '-';
@@ -209,9 +258,12 @@ async function loadEmployeeInfo(empId){
   $cupo.textContent  = cupoVis;
   $usado.textContent = (summary?.usado_2026 ?? 0);
 
-  const restVis = (typeof summary?.restante_visible === 'number')
+  const backendRestVis = (typeof summary?.restante_visible === 'number')
     ? summary.restante_visible
     : (summary?.restante_2026 ?? 0);
+  const fallbackRestVis = computeVisibleRemaining(summary, requestRows);
+  const hasPendingOrPre = (requestRows || []).some(r => ['Pendiente', 'Pre-aprobado'].includes(String(r?.status || '').trim()));
+  const restVis = hasPendingOrPre ? fallbackRestVis : backendRestVis;
   $restante.textContent = restVis;
 
   showMsg('', true);
