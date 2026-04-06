@@ -18,7 +18,15 @@
 //   employees_delete_admin(p_id uuid) -> boolean
 
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
-const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false
+  }
+});
+window.supabase = supabase;
+window.__ADMIN_PANEL_LOADED__ = true;
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Config
@@ -341,7 +349,19 @@ loginBtn.addEventListener("click", async () => {
       return;
     }
 
-    // onAuthStateChange hará la validación y la carga del panel.
+    const ok = await requireAdminSession();
+    if (!ok) {
+      errorMsg.textContent = errorMsg.textContent || "No autorizado como administrador";
+      return;
+    }
+
+    await loadVacations();
+    await loadEmployeesAdmin();
+    loginScreen.classList.add("hidden");
+    adminPanel.classList.remove("hidden");
+  } catch (e) {
+    console.error("Error iniciando sesión admin", e);
+    errorMsg.textContent = e?.message || "Error iniciando sesión";
   } finally {
     loginBtn.disabled = false;
   }
