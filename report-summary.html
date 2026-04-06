@@ -3,12 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
   <title>Resumen de Vacaciones</title>
-  <link rel="stylesheet" href="styles.css?v=20260406-frontend-stable-1">
-  <link rel="stylesheet" href="report-summary.css?v=20260406-frontend-stable-1">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="report-summary.css">
 </head>
 <body>
 
@@ -119,23 +116,38 @@
         <div class="kpi-value" id="kpi-appr">—</div>
         <div class="kpi-sub">Bloques que inician en el rango</div>
       </div>
-      <div class="kpi card">
-        <div class="kpi-title">Cupo total 2026</div>
+      <div class="kpi card kpi-accent kpi-blue">
+        <div class="kpi-title">Días totales disponibles 2026</div>
         <div class="kpi-value" id="kpi-cupo-total">—</div>
-        <div class="kpi-sub" id="kpi-cupo-total-sub">—</div>
+        <div class="kpi-sub" id="kpi-cupo-total-sub">Cupo acumulado del personal filtrado</div>
       </div>
-      <div class="kpi card">
-        <div class="kpi-title">Días restantes 2026</div>
+      <div class="kpi card kpi-accent kpi-green">
+        <div class="kpi-title">Días totales ya tomados</div>
+        <div class="kpi-value" id="kpi-tomados">—</div>
+        <div class="kpi-sub" id="kpi-tomados-sub">Días aprobados/capturados en 2026</div>
+      </div>
+      <div class="kpi card kpi-accent kpi-amber">
+        <div class="kpi-title">Días totales pendientes por tomar</div>
+        <div class="kpi-value" id="kpi-pend-tomar">—</div>
+        <div class="kpi-sub" id="kpi-pend-tomar-sub">Suma de pre-aprobadas y pendientes</div>
+      </div>
+      <div class="kpi card kpi-accent kpi-indigo">
+        <div class="kpi-title">Pendientes + ya tomados</div>
+        <div class="kpi-value" id="kpi-comprometidos">—</div>
+        <div class="kpi-sub" id="kpi-comprometidos-sub">Todo lo ya programado en 2026</div>
+      </div>
+      <div class="kpi card kpi-accent kpi-red">
+        <div class="kpi-title">Días que falta programar</div>
         <div class="kpi-value" id="kpi-restantes">—</div>
-        <div class="kpi-sub" id="kpi-restantes-sub">Saldo visible del personal filtrado</div>
+        <div class="kpi-sub" id="kpi-restantes-sub">Disponible aún no calendarizado</div>
       </div>
       <div class="kpi card">
-        <div class="kpi-title">Sin programar</div>
+        <div class="kpi-title">Personal sin programar</div>
         <div class="kpi-value" id="kpi-sin-programar">—</div>
         <div class="kpi-sub" id="kpi-sin-programar-sub">Con saldo y sin bloques en 2026</div>
       </div>
       <div class="kpi card">
-        <div class="kpi-title">Con cupos pendientes</div>
+        <div class="kpi-title">Personal con saldo pendiente</div>
         <div class="kpi-value" id="kpi-cupos-pend">—</div>
         <div class="kpi-sub" id="kpi-cupos-pend-sub">Con saldo visible pendiente por usar</div>
       </div>
@@ -156,14 +168,34 @@
 
     <div class="grid2">
       <div class="card">
-        <h2 class="h2">Personal sin programar</h2>
-        <div class="hint" style="margin-top:-6px;">Colaboradores con saldo visible y sin bloques capturados en 2026.</div>
+        <div class="section-head">
+          <div>
+            <h2 class="h2">Personal sin programar</h2>
+            <div class="hint" style="margin-top:-6px;">Colaboradores con saldo visible y sin bloques capturados en 2026.</div>
+          </div>
+          <div class="mini-filter">
+            <label for="unscheduled-bodega">Bodega</label>
+            <select id="unscheduled-bodega">
+              <option value="">Todas</option>
+            </select>
+          </div>
+        </div>
         <div id="unscheduled-list" class="list"></div>
       </div>
 
       <div class="card">
-        <h2 class="h2">Personal con cupos pendientes</h2>
-        <div class="hint" style="margin-top:-6px;">Colaboradores con saldo visible mayor a 0.</div>
+        <div class="section-head">
+          <div>
+            <h2 class="h2">Personal con cupos pendientes</h2>
+            <div class="hint" style="margin-top:-6px;">Colaboradores con saldo visible mayor a 0.</div>
+          </div>
+          <div class="mini-filter">
+            <label for="pending-bodega">Bodega</label>
+            <select id="pending-bodega">
+              <option value="">Todas</option>
+            </select>
+          </div>
+        </div>
         <div id="balance-pending-list" class="list"></div>
       </div>
     </div>
@@ -211,6 +243,6 @@
   <!-- Supabase -->
   <script src="supabase-config.js"></script>
   <script type="module" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm"></script>
-  <script type="module" src="report-summary.js?v=20260406-frontend-stable-1"></script>
+  <script type="module" src="report-summary.js?v=2026.02.24-1"></script>
 </body>
 </html>
