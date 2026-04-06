@@ -24,6 +24,12 @@ const $kPend = document.getElementById('kpi-pend');
 const $kAppr = document.getElementById('kpi-appr');
 const $kCupoTotal = document.getElementById('kpi-cupo-total');
 const $kCupoTotalSub = document.getElementById('kpi-cupo-total-sub');
+const $kTomados = document.getElementById('kpi-tomados');
+const $kTomadosSub = document.getElementById('kpi-tomados-sub');
+const $kPendTomar = document.getElementById('kpi-pend-tomar');
+const $kPendTomarSub = document.getElementById('kpi-pend-tomar-sub');
+const $kComprometidos = document.getElementById('kpi-comprometidos');
+const $kComprometidosSub = document.getElementById('kpi-comprometidos-sub');
 const $kRestantes = document.getElementById('kpi-restantes');
 const $kRestantesSub = document.getElementById('kpi-restantes-sub');
 const $kSinProgramar = document.getElementById('kpi-sin-programar');
@@ -550,8 +556,26 @@ async function refresh(){
     });
 
     const totalCupo = summariesEnriched.reduce((acc, r) => acc + num(r.cupo_visible), 0);
-    const totalUsado = summariesEnriched.reduce((acc, r) => acc + num(r.usado_2026), 0);
+    const totalUsadoResumen = summariesEnriched.reduce((acc, r) => acc + num(r.usado_2026), 0);
     const totalRestante = summariesEnriched.reduce((acc, r) => acc + num(r.restante_visible), 0);
+
+    const annualBlocksFiltered = annualBlocksAll.filter(b => {
+      if (!employeeIds.includes(b.employee_id)) return false;
+      if ($status.value && b.status !== $status.value) return false;
+      return true;
+    });
+    const totalDiasAprobados = annualBlocksFiltered
+      .filter(b => b.status === 'Aprobado')
+      .reduce((acc, b) => acc + num(b.days), 0);
+    const totalDiasPre = annualBlocksFiltered
+      .filter(b => b.status === 'Pre-aprobado')
+      .reduce((acc, b) => acc + num(b.days), 0);
+    const totalDiasPend = annualBlocksFiltered
+      .filter(b => b.status === 'Pendiente')
+      .reduce((acc, b) => acc + num(b.days), 0);
+    const totalPendPorTomar = totalDiasPre + totalDiasPend;
+    const totalComprometidos = totalDiasAprobados + totalPendPorTomar;
+    const totalFaltaProgramar = Math.max(0, totalCupo - totalComprometidos);
 
     const unscheduledEmployees = summariesEnriched
       .filter(r => num(r.restante_visible) > 0 && !r.hasAnyProgrammed)
@@ -594,9 +618,15 @@ async function refresh(){
     $kAppr.textContent = String(appr);
 
     $kCupoTotal.textContent = String(totalCupo);
-    $kCupoTotalSub.textContent = `${totalUsado} usado(s) · ${totalRestante} restante(s)`;
-    $kRestantes.textContent = String(totalRestante);
-    $kRestantesSub.textContent = `${summariesEnriched.length} colaborador(es) filtrado(s)`;
+    $kCupoTotalSub.textContent = `${summariesEnriched.length} colaborador(es) filtrado(s)`;
+    $kTomados.textContent = String(totalDiasAprobados);
+    $kTomadosSub.textContent = `${totalUsadoResumen} usado(s) según resumen base`;
+    $kPendTomar.textContent = String(totalPendPorTomar);
+    $kPendTomarSub.textContent = `${totalDiasPre} pre-aprobado(s) · ${totalDiasPend} pendiente(s)`;
+    $kComprometidos.textContent = String(totalComprometidos);
+    $kComprometidosSub.textContent = `${totalDiasAprobados} ya tomados + ${totalPendPorTomar} por tomar`;
+    $kRestantes.textContent = String(totalFaltaProgramar);
+    $kRestantesSub.textContent = `${totalRestante} restante(s) visibles en resumen base`;
     $kSinProgramar.textContent = String(unscheduledEmployees.length);
     $kSinProgramarSub.textContent = `${unscheduledEmployees.reduce((acc, r) => acc + num(r.restante_visible), 0)} día(s) por programar`;
     $kCuposPend.textContent = String(pendingBalanceEmployees.length);

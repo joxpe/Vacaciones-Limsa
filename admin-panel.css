@@ -459,3 +459,21 @@ body {
 .blackout-row-actions button{ padding:6px 10px; border-radius:8px; border:1px solid #d1d5db; background:#fff; cursor:pointer; }
 @media (max-width: 900px){ .blackout-form-grid{ grid-template-columns:1fr 1fr; } }
 @media (max-width: 560px){ .blackout-form-grid{ grid-template-columns:1fr; } .blackout-row-actions{ flex-direction:column; } }
+
+
+.vac-emp-inline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.vac-emp-inline input {
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  .vac-emp-inline {
+    grid-template-columns: 1fr;
+  }
+}

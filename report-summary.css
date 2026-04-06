@@ -88,3 +88,12 @@
 
 .kpi-sub.strong{ font-weight:700; color:#1f2937; }
 .list .meta .mini-badge{ margin-left:8px; }
+
+
+.kpi-accent{ position:relative; overflow:hidden; }
+.kpi-accent::before{ content:""; position:absolute; left:0; top:0; bottom:0; width:6px; border-radius:10px 0 0 10px; }
+.kpi-blue::before{ background:#2563eb; }
+.kpi-green::before{ background:#059669; }
+.kpi-amber::before{ background:#d97706; }
+.kpi-indigo::before{ background:#4f46e5; }
+.kpi-red::before{ background:#dc2626; }

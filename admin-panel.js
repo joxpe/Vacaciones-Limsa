@@ -94,6 +94,7 @@ function getStatusActions(v) {
     actions.push(`<button onclick="backToPending('${v.id}')">↩ Pendiente</button>`);
     actions.push(`<button onclick="reject('${v.id}')">❌ Rechazar</button>`);
   } else if (status === 'Aprobado') {
+    actions.push(`<button onclick="openCoverageEditorForRequest('${v.id}')">➕ Cobertura</button>`);
     actions.push(`<button onclick="reject('${v.id}')">❌ Rechazar</button>`);
   } else if (status === 'Rechazado') {
     actions.push(`<button onclick="backToPending('${v.id}')">↩ Pendiente</button>`);
@@ -173,19 +174,21 @@ const empSearch      = $("#emp-search");   // 🔎 buscador de nombres
 const vacEmpSearch   = $("#vac-emp-search");
 const vacEmpSuggest  = $("#vac-emp-suggest");
 const vacEmpId       = $("#vac-emp-id");
+const vacEmpClear    = $("#vac-emp-clear");
 const vacStart       = $("#vac-start");
 const vacEnd         = $("#vac-end");
 
 
-// Default: al seleccionar fecha de inicio, usar el mismo día si no hay fin capturado.
+// Default: al seleccionar fecha de inicio, sugerir fin = inicio + 3 días.
 if (vacStart && vacEnd) {
   vacStart.addEventListener("change", () => {
     const s = (vacStart.value || '').trim();
     if (!s) return;
-    const currentEnd = (vacEnd.value || '').trim();
-    if (!currentEnd || currentEnd < s) {
-      vacEnd.value = s;
-    }
+    const startDate = new Date(`${s}T00:00:00`);
+    if (Number.isNaN(startDate.getTime())) return;
+    const suggestedEnd = new Date(startDate);
+    suggestedEnd.setDate(suggestedEnd.getDate() + 3);
+    vacEnd.value = suggestedEnd.toISOString().slice(0,10);
   });
 }
 const vacCreateBtn   = $("#vac-create");
@@ -1089,6 +1092,13 @@ window.openAuthorizeModalForRequest = async (id) => {
 };
 
 
+
+window.openCoverageEditorForRequest = async (id) => {
+  const req = (VAC_DATA || []).find(v => v.id === id);
+  if (!req) { alert('No se encontró la solicitud.'); return; }
+  await openCoverageModal(req, false);
+};
+
 window.authorize = window.openAuthorizeModalForRequest;
 window.preApprove = async (id) => {
   if (!confirm('¿Marcar esta solicitud como pre-aprobada?')) return;
@@ -1575,6 +1585,23 @@ function showVacMsg(text, ok=false) {
   vacFormMsg.className = "msg " + (ok ? "ok" : "err");
 }
 
+function clearVacationEmployeeField() {
+  if (vacEmpId) vacEmpId.value = '';
+  if (vacEmpSearch) {
+    vacEmpSearch.value = '';
+    vacEmpSearch.dataset.selectedName = '';
+    vacEmpSearch.focus();
+  }
+  if (vacEmpSuggest) vacEmpSuggest.innerHTML = '';
+}
+
+if (vacEmpClear) {
+  vacEmpClear.addEventListener('click', () => {
+    clearVacationEmployeeField();
+    showVacMsg('Campo de empleado limpiado.', true);
+  });
+}
+
 // Autocomplete simple con EMP_DATA
 if (vacEmpSearch) {
   let t = null;
@@ -1582,7 +1609,7 @@ if (vacEmpSearch) {
     clearTimeout(t);
     t = setTimeout(() => {
       const q = (vacEmpSearch.value||"").trim().toLowerCase();
-      if (!q) { vacEmpSuggest.innerHTML=""; vacEmpId.value=""; return; }
+      if (!q) { vacEmpSuggest.innerHTML=""; vacEmpId.value=""; vacEmpSearch.dataset.selectedName = ''; return; }
 
       const hits = (EMP_DATA||[])
         .filter(e => (e.nombre||"").toLowerCase().includes(q))
