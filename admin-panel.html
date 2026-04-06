@@ -170,7 +170,7 @@
 
         <div id="emp-sub-alta" class="emp-block">
           <h3 class="emp-block-title">Alta</h3>
-<form id="emp-form" class="emp-form">
+<form id="emp-form" class="emp-form" novalidate>
         <div class="emp-grid">
           <div>
             <label for="emp-nombre">Nombre</label>
@@ -178,7 +178,7 @@
           </div>
           <div>
             <label for="emp-bodega">Bodega</label>
-            <input type="text" id="emp-bodega">
+            <input type="text" id="emp-bodega" required>
           </div>
           <div>
             <label for="emp-depto">Departamento</label>
@@ -190,15 +190,15 @@
           </div>
           <div>
             <label for="emp-rol">Rol</label>
-            <input type="text" id="emp-rol" placeholder="chofer, supervisor, jefe…">
+            <input type="text" id="emp-rol" placeholder="chofer, supervisor, jefe…" required>
           </div>
           <div>
             <label for="emp-ingreso">Fecha ingreso</label>
-            <input type="date" id="emp-ingreso" required>
+            <input type="text" id="emp-ingreso" required inputmode="numeric" placeholder="2026-03-23 o 23/03/2026">
           </div>
         </div>
 
-        <button type="submit">➕ Dar de alta empleado</button>
+        <button type="submit" id="emp-save-btn">➕ Dar de alta empleado</button>
       </form>
 <div id="emp-msg" class="msg"></div>
         </div>

@@ -140,6 +140,7 @@ const empRefreshBtn  = $("#emp-refresh-btn");
 const empExportBtn   = $("#emp-export-btn");
 const empImportInput = $("#emp-import-input");
 const empForm        = $("#emp-form");
+const empSaveBtn     = $("#emp-save-btn") || empForm?.querySelector('button[type="submit"]');
 const empMsg         = $("#emp-msg");
 const holidayDesc      = $("#holiday-desc");
 const holidayStart     = $("#holiday-start");
@@ -1198,6 +1199,27 @@ function addDaysISO(isoDateStr, days){
 }
 
 function compareText(a, b) { const aa = normalizeText(a), bb = normalizeText(b); return aa<bb?-1:aa>bb?1:0; }
+
+function normalizeDateToISO(v) {
+  const s = String(v || '').trim();
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const dmY = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dmY) {
+    const dd = dmY[1].padStart(2, '0');
+    const mm = dmY[2].padStart(2, '0');
+    const yyyy = dmY[3];
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  const ymd = s.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+  if (ymd) {
+    const yyyy = ymd[1];
+    const mm = ymd[2].padStart(2, '0');
+    const dd = ymd[3].padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  return '';
+}
 function compareDate(a, b) {
   if (!a && !b) return 0; if (!a) return -1; if (!b) return 1;
   const da = new Date(a), db = new Date(b);
@@ -1339,37 +1361,79 @@ if (empForm) {
     const depto  = (empDepto?.value || "").trim();
     const loc    = (empLoc?.value || "").trim();
     const rol    = (empRol?.value || "").trim().toLowerCase();
-    const ing    = (empIng?.value || "").trim(); // YYYY-MM-DD
+    const ingRaw = (empIng?.value || "").trim();
+    const ing    = normalizeDateToISO(ingRaw);
 
-    if (!nombre || !ing) {
-      showEmpMsg("Nombre y fecha de ingreso son obligatorios.", false);
+    if (!nombre || !ing || !bodega || !rol) {
+      showEmpMsg("Nombre, bodega, rol y fecha de ingreso son obligatorios. Usa fecha valida como 2026-03-23 o 23/03/2026.", false);
       return;
     }
 
-    const { data, error } = await supabase.rpc("employees_insert_admin", {
-      p_nombre:        nombre,
-      p_bodega:        bodega || null,
-      p_departamento:  depto  || null,
-      p_localizacion:  loc    || null,
-      p_rol:           rol    || null,
-      p_fecha_ingreso: ing
-    });
-
-    if (error) {
-      console.error("Error al insertar empleado:", error);
-      showEmpMsg("No se pudo dar de alta: " + (error.message || ""), false);
-      return;
+    const originalBtn = empSaveBtn?.textContent || "➕ Dar de alta empleado";
+    if (empSaveBtn) {
+      empSaveBtn.disabled = true;
+      empSaveBtn.textContent = "Guardando...";
     }
 
-    showEmpMsg("Empleado dado de alta correctamente.", true);
-    if (empNombre) empNombre.value = "";
-    if (empBod)    empBod.value    = "";
-    if (empDepto)  empDepto.value  = "";
-    if (empLoc)    empLoc.value    = "";
-    if (empRol)    empRol.value    = "";
-    if (empIng)    empIng.value    = "";
+    try {
+      const { data: userData, error: userErr } = await supabase.auth.getUser();
+      if (userErr) throw userErr;
+      const user = userData?.user;
+      if (!user?.id) {
+        throw new Error("No hay sesión activa de administrador.");
+      }
 
-    await loadEmployeesAdmin();
+      const { data: adminRow, error: adminErr } = await supabase
+        .from("admins")
+        .select("user_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (adminErr) throw adminErr;
+      if (!adminRow) {
+        throw new Error("Tu sesión no está reconocida como admin en la tabla admins.");
+      }
+
+      const rowToInsert = [{
+        nombre,
+        bodega,
+        departamento: depto || null,
+        localizacion: loc || null,
+        rol,
+        fecha_ingreso: ing
+      }];
+
+      const rpcPromise = supabase.rpc("employees_import_admin", {
+        p_rows: rowToInsert
+      });
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Tiempo de espera agotado al guardar. Revisa si el proyecto de Supabase tiene un bloqueo activo o si el RPC employees_import_admin está respondiendo.")), 12000));
+      const { data, error } = await Promise.race([rpcPromise, timeoutPromise]);
+      if (error) throw error;
+
+      const inserted = Number(data ?? 0);
+      if (!Number.isFinite(inserted) || inserted < 1) {
+        throw new Error("El alta no devolvió confirmación de inserción.");
+      }
+
+      showEmpMsg("Empleado dado de alta correctamente.", true);
+      if (empNombre) empNombre.value = "";
+      if (empBod)    empBod.value    = "";
+      if (empDepto)  empDepto.value  = "";
+      if (empLoc)    empLoc.value    = "";
+      if (empRol)    empRol.value    = "";
+      if (empIng)    empIng.value    = "";
+
+      loadEmployeesAdmin().catch(err => {
+        console.error("Recarga de empleados posterior al alta falló:", err);
+      });
+    } catch (err) {
+      console.error("Error al dar de alta empleado:", err);
+      showEmpMsg("No se pudo dar de alta: " + (err?.message || err?.error_description || "Error desconocido"), false);
+    } finally {
+      if (empSaveBtn) {
+        empSaveBtn.disabled = false;
+        empSaveBtn.textContent = originalBtn;
+      }
+    }
   });
 }
 
@@ -1526,12 +1590,13 @@ if (empImportInput) {
 
         const nombre = cols[idxNom] || "";
         const ingreso = cols[idxIng] || "";
+        const ingresoIso = normalizeDateToISO(ingreso);
 
-        if (!nombre || !ingreso) continue;
+        if (!nombre || !ingresoIso) continue;
 
         const rec = {
           nombre: nombre.trim(),
-          fecha_ingreso: ingreso.trim()
+          fecha_ingreso: ingresoIso
         };
 
         if (idxBod !== -1) rec.bodega       = (cols[idxBod] || "").trim() || null;
