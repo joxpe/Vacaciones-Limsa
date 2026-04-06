@@ -1,6 +1,21 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
 const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
+const RPC_TIMEOUT_MS = 12000;
+let LOAD_SEQ = 0;
+
+async function withTimeout(promise, label, ms = RPC_TIMEOUT_MS) {
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label}: tiempo de espera agotado`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 const $bod   = document.getElementById('f-bodega');        // multiselect
 const $dep   = document.getElementById('f-depto');
 const $loc   = document.getElementById('f-localizacion');
@@ -40,9 +55,10 @@ function isSundayISO(iso){
 // Estado actual (bodegas = arreglo multiselección)
 let CUR = { month: new Date(), bodegas: [], depto: '', loc: '' };
 
-// Feriados y fechas bloqueadas
+// Feriados 2026
 let HOLIDAYS_2026 = new Set();
-let BLACKOUT_DATES = new Map();
+// Fechas bloqueadas activas: YYYY-MM-DD -> descripción
+let BLACKOUTS_BY_DATE = new Map();
 
 // Cache de empleados y listas
 let EMP_ROWS_CACHE = [];           // employees_public_v2()
@@ -53,24 +69,35 @@ let LOC_ALL = [];                  // todas las localizaciones
 
 async function loadHolidays(){
   try {
-    const { data, error } = await supabase.rpc('vac_feriados_2026');
-    if (error) { console.warn('No pude cargar feriados 2026:', error.message); return; }
-    HOLIDAYS_2026 = new Set((data || []).map(r => String(r.d).slice(0,10)));
+    const { data, error } = await withTimeout(supabase.rpc('vac_feriados_2026'), 'Cargar feriados');
+    if (error) { console.warn('No pude cargar feriados 2026:', error.message); return false; }
+    HOLIDAYS_2026 = new Set((data || []).map(r => r.d));
+    return true;
   } catch (e) {
     console.warn('Error inesperado cargando feriados 2026:', e);
+    return false;
   }
 }
 
-async function loadBlackoutDates(){
+async function loadBlackouts(){
   try {
-    const { data, error } = await supabase
-      .from('vacation_blackout_dates')
-      .select('date, description, active')
-      .eq('active', true);
-    if (error) { console.warn('No pude cargar fechas bloqueadas:', error.message); return; }
-    BLACKOUT_DATES = new Map((data || []).map(r => [String(r.date).slice(0,10), String(r.description || 'Fecha bloqueada')]));
+    const { data, error } = await withTimeout(
+      supabase
+        .from('vacation_blackout_dates')
+        .select('date, description, active')
+        .eq('active', true),
+      'Cargar bloqueados'
+    );
+    if (error) { console.warn('No pude cargar fechas bloqueadas:', error.message); return false; }
+    BLACKOUTS_BY_DATE = new Map(
+      (data || [])
+        .filter(r => r?.date)
+        .map(r => [r.date, (r.description || 'Fecha bloqueada').trim() || 'Fecha bloqueada'])
+    );
+    return true;
   } catch (e) {
     console.warn('Error inesperado cargando fechas bloqueadas:', e);
+    return false;
   }
 }
 
@@ -143,11 +170,17 @@ function refreshBodegaOptionsByLocDept(){
 }
 
 async function loadFilters(){
-  const rpc = await supabase.rpc('employees_public_v2');
-  if (rpc.error) { showMsg('No pude cargar filtros: ' + rpc.error.message, false); return; }
-  EMP_ROWS_CACHE = rpc.data || [];
-  buildIndexesFromEmployees(EMP_ROWS_CACHE);
-  refreshBodegaOptionsByLocDept();
+  try {
+    const rpc = await withTimeout(supabase.rpc('employees_public_v2'), 'Cargar filtros');
+    if (rpc.error) { showMsg('No pude cargar filtros: ' + rpc.error.message, false); return false; }
+    EMP_ROWS_CACHE = rpc.data || [];
+    buildIndexesFromEmployees(EMP_ROWS_CACHE);
+    refreshBodegaOptionsByLocDept();
+    return true;
+  } catch (e) {
+    showMsg(e?.message || 'No pude cargar filtros', false);
+    return false;
+  }
 }
 
 function buildCalendarGrid(monthDate){
@@ -175,12 +208,19 @@ function buildCalendarGrid(monthDate){
     cell.dataset.date = dateStr;
     cell.innerHTML = `<div class="cal-daynum">${d}</div><div class="cal-badges"></div>`;
 
-    // Fechas bloqueadas para vacaciones (mismo estilo que Buen Fin)
-    if (BLACKOUT_DATES.has(dateStr)) {
+    const blackoutLabel = BLACKOUTS_BY_DATE.get(dateStr);
+
+    // Fechas bloqueadas con descripción visible
+    if (blackoutLabel) {
       cell.classList.add('buenfin');
-      cell.dataset.blackoutLabel = BLACKOUT_DATES.get(dateStr) || 'Fecha bloqueada';
+      cell.dataset.blackoutLabel = blackoutLabel;
     }
-    // Feriados reales / no laborales
+    // Buen Fin (compatibilidad si no existe en la tabla de bloqueados)
+    else if (dateStr >= "2026-11-13" && dateStr <= "2026-11-16") {
+      cell.classList.add('buenfin');
+      cell.dataset.blackoutLabel = 'Buen Fin';
+    }
+    // Otros feriados (no laborales)
     else if (HOLIDAYS_2026.has(dateStr)) {
       cell.classList.add('holiday');
     }
@@ -209,19 +249,26 @@ function computeConcurrency(mapDay){
 }
 
 async function loadMonth(){
+  const loadSeq = ++LOAD_SEQ;
   showMsg('Cargando…', true);
 
   const first = firstDayOfMonth(CUR.month);
   const last  = lastDayOfMonth(CUR.month);
 
-  // Filtramos por Departamento en servidor.
-  // Localización y Bodega (multiselección) se aplican en cliente.
-  const { data, error } = await supabase.rpc('mgr_calendar_month', {
-    p_bodega: null,                 // manejamos bodegas en cliente (multi)
-    p_depto:  CUR.depto || null,    // en servidor
-    p_first:  ymd(first),
-    p_last:   ymd(last)
-  });
+  let data, error;
+  try {
+    ({ data, error } = await withTimeout(supabase.rpc('mgr_calendar_month', {
+      p_bodega: null,
+      p_depto:  CUR.depto || null,
+      p_first:  ymd(first),
+      p_last:   ymd(last)
+    }), 'Cargar calendario'));
+  } catch (e) {
+    if (loadSeq !== LOAD_SEQ) return;
+    showMsg(e?.message || 'Error leyendo calendario', false);
+    return;
+  }
+  if (loadSeq !== LOAD_SEQ) return;
   if (error) { showMsg('Error leyendo calendario: ' + error.message, false); return; }
 
   const selBods = new Set(CUR.bodegas);
@@ -308,9 +355,15 @@ $next.addEventListener('click', () => { CUR.month = new Date(CUR.month.getFullYe
 // Inicio
 (async function init(){
   CUR.month = new Date();
-  await loadFilters();       // llena combos y construye listas base
-  await loadHolidays();
-  await loadBlackoutDates();
+  const okFilters = await loadFilters();
+  const okHolidays = await loadHolidays();
+  const okBlackouts = await loadBlackouts();
   buildCalendarGrid(CUR.month);
-  await loadMonth();
+  if (okFilters !== false) await loadMonth();
+  if (okHolidays === false && !$msg.textContent) {
+    showMsg('No pude cargar feriados, pero el calendario sigue disponible.', false);
+  }
+  if (okBlackouts === false && !$msg.textContent) {
+    showMsg('No pude cargar fechas bloqueadas, pero el calendario sigue disponible.', false);
+  }
 })();
