@@ -22,8 +22,7 @@ const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: false,
-    storageKey: 'admin-panel-auth-token'
+    detectSessionInUrl: false
   }
 });
 window.supabase = supabase;
@@ -290,7 +289,7 @@ async function requireAdminSession() {
     return false;
   }
 
-  if (!adminRow) {
+if (!adminRow) {
     errorMsg.textContent = "Tu usuario no tiene permisos de administrador";
     // FIX: Cerramos la sesión del usuario normal para no dejarla atorada
     await supabase.auth.signOut(); 
@@ -339,16 +338,20 @@ loginBtn.addEventListener("click", async () => {
     return;
   }
 
-  loginBtn.disabled = true;
+loginBtn.disabled = true;
 
   try {
-    // 1. Limpieza segura: Si Supabase cree que ya hay alguien, lo sacamos primero
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
-      await supabase.auth.signOut();
-    }
+    // FIX DEFINITIVO: Hacemos el "Borrar Historial" de Supabase automáticamente 
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('sb-') && key.endsWith('-auth-token')) {
+        localStorage.removeItem(key);
+      }
+    });
+    
+    // Aseguramos que la instancia también suelte la memoria
+    await supabase.auth.signOut();
 
-    // 2. Iniciamos sesión en limpio
+    // Ahora sí, iniciamos sesión en limpio
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password: pass
@@ -359,7 +362,6 @@ loginBtn.addEventListener("click", async () => {
       return;
     }
 
-    // 3. Forzamos la actualización de la UI y los datos (método explícito)
     const ok = await requireAdminSession();
     if (!ok) {
       errorMsg.textContent = errorMsg.textContent || "No autorizado como administrador";
@@ -370,7 +372,6 @@ loginBtn.addEventListener("click", async () => {
     await loadEmployeesAdmin();
     loginScreen.classList.add("hidden");
     adminPanel.classList.remove("hidden");
-
   } catch (e) {
     console.error("Error iniciando sesión admin", e);
     errorMsg.textContent = e?.message || "Error iniciando sesión";
