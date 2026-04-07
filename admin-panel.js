@@ -289,7 +289,7 @@ async function requireAdminSession() {
     return false;
   }
 
-if (!adminRow) {
+  if (!adminRow) {
     errorMsg.textContent = "Tu usuario no tiene permisos de administrador";
     // FIX: Cerramos la sesión del usuario normal para no dejarla atorada
     await supabase.auth.signOut(); 
@@ -341,18 +341,34 @@ loginBtn.addEventListener("click", async () => {
   loginBtn.disabled = true;
 
   try {
+    // 1. Limpieza segura: Si Supabase cree que ya hay alguien, lo sacamos primero
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      await supabase.auth.signOut();
+    }
+
+    // 2. Iniciamos sesión en limpio
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password: pass
     });
 
     if (error) {
-      errorMsg.textContent = error.message || "Credenciales incorrectas";
+      errorMsg.textContent = error.message || "No se pudo iniciar sesión";
       return;
     }
 
-    // Fuerza la carga del panel de inmediato para no depender solo de onAuthStateChange
-    await syncAdminState();
+    // 3. Forzamos la actualización de la UI y los datos (método explícito)
+    const ok = await requireAdminSession();
+    if (!ok) {
+      errorMsg.textContent = errorMsg.textContent || "No autorizado como administrador";
+      return;
+    }
+
+    await loadVacations();
+    await loadEmployeesAdmin();
+    loginScreen.classList.add("hidden");
+    adminPanel.classList.remove("hidden");
 
   } catch (e) {
     console.error("Error iniciando sesión admin", e);
