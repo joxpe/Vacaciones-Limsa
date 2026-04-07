@@ -552,9 +552,16 @@ async function refresh(){
       const hasAnyProgrammed = empBlocks.length > 0;
       const hasPendingRequest = empBlocks.some(b => b.status === 'Pendiente');
       const hasPreapprovedRequest = empBlocks.some(b => b.status === 'Pre-aprobado');
+      const programmedDays = empBlocks
+        .filter(b => b.status === 'Aprobado' || b.status === 'Pendiente' || b.status === 'Pre-aprobado')
+        .reduce((acc, b) => acc + num(b.days), 0);
+      const cupoVisible = num((s && s.cupo_visible) ?? 0);
+      const restanteVisible = Math.max(0, cupoVisible - programmedDays);
       return {
         ...buildSummaryFallback(s.employee_id),
         ...s,
+        usado_2026: programmedDays,
+        restante_visible: restanteVisible,
         hasAnyProgrammed,
         hasPendingRequest,
         hasPreapprovedRequest
