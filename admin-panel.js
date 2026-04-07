@@ -341,9 +341,17 @@ loginBtn.addEventListener("click", async () => {
 loginBtn.disabled = true;
 
   try {
-    // FIX: Forzamos el cierre de cualquier sesión fantasma antes de intentar entrar
+    // FIX DEFINITIVO: Hacemos el "Borrar Historial" de Supabase automáticamente 
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('sb-') && key.endsWith('-auth-token')) {
+        localStorage.removeItem(key);
+      }
+    });
+    
+    // Aseguramos que la instancia también suelte la memoria
     await supabase.auth.signOut();
 
+    // Ahora sí, iniciamos sesión en limpio
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password: pass
@@ -2158,7 +2166,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 supabase.auth.onAuthStateChange(async (_event, session) => {
   if (!session) {
-    errorMsg.textContent = "";
+    // errorMsg.textContent = "";  // <--- ¡BORRA O COMENTA ESTA LÍNEA!
     adminPanel.classList.add("hidden");
     loginScreen.classList.remove("hidden");
     return;
