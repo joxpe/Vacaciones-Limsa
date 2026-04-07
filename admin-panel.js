@@ -289,8 +289,10 @@ async function requireAdminSession() {
     return false;
   }
 
-  if (!adminRow) {
+if (!adminRow) {
     errorMsg.textContent = "Tu usuario no tiene permisos de administrador";
+    // FIX: Cerramos la sesión del usuario normal para no dejarla atorada
+    await supabase.auth.signOut(); 
     adminPanel.classList.add("hidden");
     loginScreen.classList.remove("hidden");
     return false;
@@ -336,9 +338,12 @@ loginBtn.addEventListener("click", async () => {
     return;
   }
 
-  loginBtn.disabled = true;
+loginBtn.disabled = true;
 
   try {
+    // FIX: Forzamos el cierre de cualquier sesión fantasma antes de intentar entrar
+    await supabase.auth.signOut();
+
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password: pass
