@@ -381,11 +381,15 @@ loginBtn.disabled = true;
   }
 });
 
-logoutBtn.addEventListener("click", async () => {
-  await supabase.auth.signOut();
-  adminPanel.classList.add("hidden");
-  loginScreen.classList.remove("hidden");
-});
+const logoutBtn = document.getElementById("logout-btn");
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", async () => {
+    await supabase.auth.signOut();
+    // Lo ocultamos a mano porque ya no hay evento automático
+    adminPanel.classList.add("hidden");
+    loginScreen.classList.remove("hidden");
+  });
+}
 
 refreshBtn.addEventListener("click", async () => {
   const ok = await requireAdminSession();
