@@ -22,7 +22,19 @@ const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: false
+    detectSessionInUrl: false,
+    storageKey: 'admin-panel-auth-token',
+    storage: window.sessionStorage // ⬅️ FIX: Aísla la sesión de la de los empleados
+  }
+});
+window.supabase = supabase;
+window.__ADMIN_PANEL_LOADED__ = true;
+
+// ⬅️ FIX FIREFOX: Detectamos si la página viene congelada del caché y la reiniciamos
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted) {
+    ADMIN_SYNC_IN_PROGRESS = false; 
+    window.location.reload(); 
   }
 });
 window.supabase = supabase;
@@ -289,7 +301,7 @@ async function requireAdminSession() {
     return false;
   }
 
-if (!adminRow) {
+  if (!adminRow) {
     errorMsg.textContent = "Tu usuario no tiene permisos de administrador";
     // FIX: Cerramos la sesión del usuario normal para no dejarla atorada
     await supabase.auth.signOut(); 
@@ -329,6 +341,9 @@ async function syncAdminState() {
 
 loginBtn.addEventListener("click", async () => {
   errorMsg.textContent = "";
+  
+  // FIX: Destruimos cualquier candado fantasma que haya quedado atorado
+  ADMIN_SYNC_IN_PROGRESS = false; 
 
   const email = adminEmail?.value?.trim() || "";
   const pass = $("#admin-pass").value.trim();
@@ -338,20 +353,14 @@ loginBtn.addEventListener("click", async () => {
     return;
   }
 
-loginBtn.disabled = true;
+  loginBtn.disabled = true;
 
   try {
-    // FIX DEFINITIVO: Hacemos el "Borrar Historial" de Supabase automáticamente 
-    Object.keys(localStorage).forEach(key => {
-      if (key.startsWith('sb-') && key.endsWith('-auth-token')) {
-        localStorage.removeItem(key);
-      }
-    });
-    
-    // Aseguramos que la instancia también suelte la memoria
-    await supabase.auth.signOut();
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      await supabase.auth.signOut();
+    }
 
-    // Ahora sí, iniciamos sesión en limpio
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password: pass
@@ -372,6 +381,7 @@ loginBtn.disabled = true;
     await loadEmployeesAdmin();
     loginScreen.classList.add("hidden");
     adminPanel.classList.remove("hidden");
+
   } catch (e) {
     console.error("Error iniciando sesión admin", e);
     errorMsg.textContent = e?.message || "Error iniciando sesión";
