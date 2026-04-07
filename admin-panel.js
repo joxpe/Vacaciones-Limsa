@@ -291,10 +291,8 @@ async function requireAdminSession() {
 
 if (!adminRow) {
     errorMsg.textContent = "Tu usuario no tiene permisos de administrador";
-    
-    // Destruye la sesión del colaborador normal nada más entrar a la página
+    // FIX: Cerramos la sesión del usuario normal para no dejarla atorada
     await supabase.auth.signOut(); 
-    
     adminPanel.classList.add("hidden");
     loginScreen.classList.remove("hidden");
     return false;
@@ -343,7 +341,6 @@ loginBtn.addEventListener("click", async () => {
   loginBtn.disabled = true;
 
   try {
-    // Solo pedimos iniciar sesión, sin hacks de localStorage
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password: pass
@@ -354,9 +351,8 @@ loginBtn.addEventListener("click", async () => {
       return;
     }
 
-    // ⚠️ IMPORTANTE: Ya no llamamos a requireAdminSession(), ni a loadVacations(), 
-    // ni quitamos la clase "hidden" aquí. Al iniciar sesión exitosamente, 
-    // Supabase dispara 'onAuthStateChange' solito y él se encarga de mostrar el panel.
+    // Fuerza la carga del panel de inmediato para no depender solo de onAuthStateChange
+    await syncAdminState();
 
   } catch (e) {
     console.error("Error iniciando sesión admin", e);
