@@ -270,6 +270,37 @@ async function fetchAdminRow(userId) {
   return { data: null, error: null };
 }
 
+async function requireAdminByUserId(userId) {
+  errorMsg.textContent = "";
+
+  if (!userId) {
+    adminPanel.classList.add("hidden");
+    loginScreen.classList.remove("hidden");
+    return false;
+  }
+
+  const { data: adminRow, error: adminErr } = await fetchAdminRow(userId);
+
+  if (adminErr) {
+    errorMsg.textContent = "Error validando permisos: " + adminErr.message;
+    adminPanel.classList.add("hidden");
+    loginScreen.classList.remove("hidden");
+    return false;
+  }
+
+  if (!adminRow) {
+    errorMsg.textContent = "Tu usuario no tiene permisos de administrador";
+    await supabase.auth.signOut();
+    adminPanel.classList.add("hidden");
+    loginScreen.classList.remove("hidden");
+    return false;
+  }
+
+  loginScreen.classList.add("hidden");
+  adminPanel.classList.remove("hidden");
+  return true;
+}
+
 async function requireAdminSession() {
   errorMsg.textContent = "";
 
@@ -281,27 +312,7 @@ async function requireAdminSession() {
     return false;
   }
 
-  const { data: adminRow, error: adminErr } = await fetchAdminRow(session.user.id);
-
-  if (adminErr) {
-    errorMsg.textContent = "Error validando permisos: " + adminErr.message;
-    adminPanel.classList.add("hidden");
-    loginScreen.classList.remove("hidden");
-    return false;
-  }
-
-if (!adminRow) {
-    errorMsg.textContent = "Tu usuario no tiene permisos de administrador";
-    // FIX: Cerramos la sesión del usuario normal para no dejarla atorada
-    await supabase.auth.signOut(); 
-    adminPanel.classList.add("hidden");
-    loginScreen.classList.remove("hidden");
-    return false;
-  }
-
-  loginScreen.classList.add("hidden");
-  adminPanel.classList.remove("hidden");
-  return true;
+  return await requireAdminByUserId(session.user.id);
 }
 
 async function syncAdminState() {
@@ -339,21 +350,10 @@ loginBtn.addEventListener("click", async () => {
     return;
   }
 
-loginBtn.disabled = true;
+  loginBtn.disabled = true;
 
   try {
-    // FIX DEFINITIVO: Hacemos el "Borrar Historial" de Supabase automáticamente 
-    Object.keys(localStorage).forEach(key => {
-      if (key.startsWith('sb-') && key.endsWith('-auth-token')) {
-        localStorage.removeItem(key);
-      }
-    });
-    
-    // Aseguramos que la instancia también suelte la memoria
-    await supabase.auth.signOut();
-
-    // Ahora sí, iniciamos sesión en limpio
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password: pass
     });
@@ -363,7 +363,8 @@ loginBtn.disabled = true;
       return;
     }
 
-    const ok = await requireAdminSession();
+    const userId = data?.user?.id || data?.session?.user?.id;
+    const ok = await requireAdminByUserId(userId);
     if (!ok) {
       errorMsg.textContent = errorMsg.textContent || "No autorizado como administrador";
       return;
@@ -381,11 +382,9 @@ loginBtn.disabled = true;
   }
 });
 
-const logoutBtn = document.getElementById("logout-btn");
 if (logoutBtn) {
   logoutBtn.addEventListener("click", async () => {
     await supabase.auth.signOut();
-    // Lo ocultamos a mano porque ya no hay evento automático
     adminPanel.classList.add("hidden");
     loginScreen.classList.remove("hidden");
   });
