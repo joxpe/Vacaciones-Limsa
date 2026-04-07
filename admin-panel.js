@@ -2161,19 +2161,18 @@ if (holidayList) holidayList.addEventListener('click', async (ev) => {
   if (action === 'delete') await deleteHoliday(date);
 });
 
+// Carga inicial normal
 document.addEventListener("DOMContentLoaded", async () => {
+  ADMIN_SYNC_IN_PROGRESS = false;
   await syncAdminState();
 });
 
-supabase.auth.onAuthStateChange(async (_event, session) => {
-  if (!session) {
-    // errorMsg.textContent = "";  // <--- ¡BORRA O COMENTA ESTA LÍNEA!
-    adminPanel.classList.add("hidden");
-    loginScreen.classList.remove("hidden");
-    return;
+// Restauración si usas el botón "Regresar" de Firefox (BFCache)
+window.addEventListener('pageshow', async (event) => {
+  if (event.persisted) {
+    ADMIN_SYNC_IN_PROGRESS = false;
+    await syncAdminState();
   }
-
-  await syncAdminState();
 });
 
 
