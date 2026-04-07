@@ -291,8 +291,10 @@ async function requireAdminSession() {
 
 if (!adminRow) {
     errorMsg.textContent = "Tu usuario no tiene permisos de administrador";
-    // FIX: Cerramos la sesión del usuario normal para no dejarla atorada
+    
+    // Destruye la sesión del colaborador normal nada más entrar a la página
     await supabase.auth.signOut(); 
+    
     adminPanel.classList.add("hidden");
     loginScreen.classList.remove("hidden");
     return false;
@@ -338,40 +340,24 @@ loginBtn.addEventListener("click", async () => {
     return;
   }
 
-loginBtn.disabled = true;
+  loginBtn.disabled = true;
 
   try {
-    // FIX DEFINITIVO: Hacemos el "Borrar Historial" de Supabase automáticamente 
-    Object.keys(localStorage).forEach(key => {
-      if (key.startsWith('sb-') && key.endsWith('-auth-token')) {
-        localStorage.removeItem(key);
-      }
-    });
-    
-    // Aseguramos que la instancia también suelte la memoria
-    await supabase.auth.signOut();
-
-    // Ahora sí, iniciamos sesión en limpio
+    // Solo pedimos iniciar sesión, sin hacks de localStorage
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password: pass
     });
 
     if (error) {
-      errorMsg.textContent = error.message || "No se pudo iniciar sesión";
+      errorMsg.textContent = error.message || "Credenciales incorrectas";
       return;
     }
 
-    const ok = await requireAdminSession();
-    if (!ok) {
-      errorMsg.textContent = errorMsg.textContent || "No autorizado como administrador";
-      return;
-    }
+    // ⚠️ IMPORTANTE: Ya no llamamos a requireAdminSession(), ni a loadVacations(), 
+    // ni quitamos la clase "hidden" aquí. Al iniciar sesión exitosamente, 
+    // Supabase dispara 'onAuthStateChange' solito y él se encarga de mostrar el panel.
 
-    await loadVacations();
-    await loadEmployeesAdmin();
-    loginScreen.classList.add("hidden");
-    adminPanel.classList.remove("hidden");
   } catch (e) {
     console.error("Error iniciando sesión admin", e);
     errorMsg.textContent = e?.message || "Error iniciando sesión";
