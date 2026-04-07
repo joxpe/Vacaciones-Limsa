@@ -22,13 +22,11 @@ const supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: false,
-    storageKey: 'admin-panel-auth-token' // ⬅️ Aislado de los empleados, pero PERSISTENTE
+    detectSessionInUrl: false
   }
 });
 window.supabase = supabase;
 window.__ADMIN_PANEL_LOADED__ = true;
-
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Config
@@ -284,11 +282,17 @@ async function requireAdminSession() {
 
   const { data: adminRow, error: adminErr } = await fetchAdminRow(session.user.id);
 
-  if (adminErr || !adminRow) {
-    errorMsg.textContent = adminErr ? "Error: " + adminErr.message : "Tu usuario no tiene permisos de administrador";
-    
+  if (adminErr) {
+    errorMsg.textContent = "Error validando permisos: " + adminErr.message;
+    adminPanel.classList.add("hidden");
+    loginScreen.classList.remove("hidden");
+    return false;
+  }
+
+if (!adminRow) {
+    errorMsg.textContent = "Tu usuario no tiene permisos de administrador";
+    // FIX: Cerramos la sesión del usuario normal para no dejarla atorada
     await supabase.auth.signOut(); 
-    
     adminPanel.classList.add("hidden");
     loginScreen.classList.remove("hidden");
     return false;
@@ -334,10 +338,20 @@ loginBtn.addEventListener("click", async () => {
     return;
   }
 
-  loginBtn.disabled = true;
-  loginBtn.textContent = "Entrando..."; // Feedback visual
+loginBtn.disabled = true;
 
   try {
+    // FIX DEFINITIVO: Hacemos el "Borrar Historial" de Supabase automáticamente 
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('sb-') && key.endsWith('-auth-token')) {
+        localStorage.removeItem(key);
+      }
+    });
+    
+    // Aseguramos que la instancia también suelte la memoria
+    await supabase.auth.signOut();
+
+    // Ahora sí, iniciamos sesión en limpio
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password: pass
@@ -348,15 +362,21 @@ loginBtn.addEventListener("click", async () => {
       return;
     }
 
-    // Forzar la carga de la interfaz sin depender solo de los eventos automáticos
-    await syncAdminState();
+    const ok = await requireAdminSession();
+    if (!ok) {
+      errorMsg.textContent = errorMsg.textContent || "No autorizado como administrador";
+      return;
+    }
 
+    await loadVacations();
+    await loadEmployeesAdmin();
+    loginScreen.classList.add("hidden");
+    adminPanel.classList.remove("hidden");
   } catch (e) {
     console.error("Error iniciando sesión admin", e);
     errorMsg.textContent = e?.message || "Error iniciando sesión";
   } finally {
     loginBtn.disabled = false;
-    loginBtn.textContent = "Entrar";
   }
 });
 
