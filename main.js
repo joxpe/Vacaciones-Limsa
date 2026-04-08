@@ -281,68 +281,91 @@ async function generateVacationPdf(reqId){
     if (!row) throw new Error('No se recibieron datos para el PDF.');
 
     const jsPDF = await loadJsPdf();
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'letter' });
 
-    const pageW = 279.4;
-    const pageH = 215.9;
+    // Carta vertical completa, pero el vale ocupa solo la mitad superior.
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'letter'
+    });
 
-    doc.setDrawColor(70);
-    doc.setLineWidth(0.7);
-    doc.roundedRect(7, 7, pageW - 14, pageH - 14, 4, 4);
+    const pageW = 215.9;
+    const pageH = 279.4;
+    const boxX = 7;
+    const boxY = 7;
+    const boxW = pageW - 14;
+    const boxH = 132;
+    const leftX = boxX + 8;
+    const rightX = boxX + (boxW / 2) + 4;
+    const colW = (boxW / 2) - 12;
+    const lineGap = 11;
+
+    doc.setDrawColor(60);
+    doc.setLineWidth(0.6);
+    doc.roundedRect(boxX, boxY, boxW, boxH, 3, 3);
+    doc.line(boxX + (boxW / 2), boxY + 26, boxX + (boxW / 2), boxY + 96);
 
     try {
-      doc.addImage(LIMSA_LOGO_DATA_URL, 'PNG', 13, 12, 60, 17);
+      doc.addImage(LIMSA_LOGO_DATA_URL, 'PNG', boxX + 8, boxY + 7, 34, 10);
     } catch (_e) {
-      // Si algo inesperado pasa con la imagen, el PDF sigue.
+      // Si falla la imagen, el PDF sigue.
     }
 
     doc.setFont('times', 'bold');
-    doc.setFontSize(19);
-    doc.text('VALE DE VACACIONES', pageW / 2, 20, { align: 'center' });
+    doc.setFontSize(14);
+    doc.text('VALE DE VACACIONES', pageW / 2, boxY + 13, { align: 'center' });
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.text(`Folio: ${row.folio || '-'}`, pageW - 12, 14, { align: 'right' });
-    doc.text(`Impresión: ${fmtDateTime(row.printed_at)}`, pageW - 12, 20, { align: 'right' });
+    doc.setFontSize(8);
+    doc.text(`Folio: ${row.folio || '-'}`, boxX + boxW - 8, boxY + 9, { align: 'right' });
+    doc.text(`Impresión: ${fmtDateTime(row.printed_at)}`, boxX + boxW - 8, boxY + 14, { align: 'right' });
 
-    let y = 42;
-    const xLabel = 18;
-    function lineField(label, value, xVal, lineEnd){
+    doc.setLineWidth(0.4);
+    doc.line(boxX + 6, boxY + 18, boxX + boxW - 6, boxY + 18);
+
+    function writeField(x, y, label, value, width = colW) {
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10.5);
-      doc.text(label, xLabel, y);
-
+      doc.setFontSize(8);
+      doc.text(label, x, y);
       doc.setFont('helvetica', 'normal');
-      doc.text(String(value ?? ''), xVal, y);
-
-      doc.line(xVal - 1, y + 1.7, lineEnd, y + 1.7);
-      y += 15;
+      doc.setFontSize(9);
+      const safeValue = String(value ?? '-');
+      const lines = doc.splitTextToSize(safeValue, width);
+      doc.text(lines, x, y + 4.2);
+      const h = Math.max(6, lines.length * 3.8 + 1.5);
+      doc.line(x, y + h + 2, x + width, y + h + 2);
+      return h + 7;
     }
 
-    lineField('NOMBRE', row.nombre, 82, 255);
-    lineField('FECHA DE INGRESO', fmtLong(row.fecha_ingreso), 82, 158);
-    lineField('DÍAS QUE CORRESPONDEN EN EL AÑO VIGENTE', row.dias_corresponden, 150, 188);
-    lineField('DÍAS A DISFRUTAR (PERIODO)', row.dias_disfrutar, 115, 175);
-    lineField('A PARTIR DEL', fmtLong(row.start_date), 82, 155);
-    lineField('HASTA EL', fmtLong(row.end_date), 82, 155);
-    lineField('REGRESANDO A LABORAR EL DÍA', fmtLong(row.return_date), 155, 225);
+    let yL = boxY + 29;
+    yL += writeField(leftX, yL, 'NOMBRE', row.nombre, colW);
+    yL += writeField(leftX, yL, 'FECHA DE INGRESO', fmtLong(row.fecha_ingreso), colW);
+    yL += writeField(leftX, yL, 'DÍAS QUE CORRESPONDEN', row.dias_corresponden, colW);
+    yL += writeField(leftX, yL, 'DÍAS A DISFRUTAR', row.dias_disfrutar, colW);
 
-    const sigY = 182;
-    const leftX = 45;
-    const centerX = pageW / 2;
-    const rightX = pageW - 45;
-    const sigW = 68;
+    let yR = boxY + 29;
+    yR += writeField(rightX, yR, 'A PARTIR DEL', fmtLong(row.start_date), colW);
+    yR += writeField(rightX, yR, 'HASTA EL', fmtLong(row.end_date), colW);
+    yR += writeField(rightX, yR, 'REGRESA A LABORAR EL', fmtLong(row.return_date), colW);
 
+    const notesY = boxY + 98;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    const note = 'Este vale ampara la autorización del periodo vacacional solicitado por el colaborador.';
+    doc.text(doc.splitTextToSize(note, boxW - 16), boxX + 8, notesY);
+
+    const sigY = boxY + boxH - 16;
+    const sigW = 48;
     function signLine(cx, label){
-      doc.line(cx - sigW/2, sigY, cx + sigW/2, sigY);
+      doc.line(cx - (sigW / 2), sigY, cx + (sigW / 2), sigY);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10);
-      doc.text(label, cx, sigY + 6, { align: 'center' });
+      doc.setFontSize(7);
+      doc.text(label, cx, sigY + 4.2, { align: 'center', maxWidth: sigW + 6 });
     }
 
-    signLine(leftX, 'FIRMA DEL COLABORADOR');
-    signLine(centerX, 'FIRMA DE PERSONAL');
-    signLine(rightX, 'FIRMA DEL JEFE');
+    signLine(46, 'FIRMA DEL COLABORADOR');
+    signLine(pageW / 2, 'FIRMA DEL JEFE');
+    signLine(pageW - 46, 'FIRMA DE PERSONAL');
 
     const fileName = `${row.folio || 'vale_vacaciones'}_${buildSafeFilename(row.nombre)}.pdf`;
     doc.save(fileName);
