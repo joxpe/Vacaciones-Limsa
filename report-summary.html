@@ -142,11 +142,6 @@
         <div class="kpi-sub" id="kpi-restantes-sub">Disponible aún no calendarizado</div>
       </div>
       <div class="kpi card">
-        <div class="kpi-title">Personal sin programar</div>
-        <div class="kpi-value" id="kpi-sin-programar">—</div>
-        <div class="kpi-sub" id="kpi-sin-programar-sub">Con saldo y sin bloques en 2026</div>
-      </div>
-      <div class="kpi card">
         <div class="kpi-title">Personal con saldo pendiente</div>
         <div class="kpi-value" id="kpi-cupos-pend">—</div>
         <div class="kpi-sub" id="kpi-cupos-pend-sub">Con saldo visible pendiente por usar</div>
@@ -170,24 +165,8 @@
       <div class="card">
         <div class="section-head">
           <div>
-            <h2 class="h2">Personal sin programar</h2>
-            <div class="hint" style="margin-top:-6px;">Colaboradores con saldo visible y sin bloques capturados en 2026.</div>
-          </div>
-          <div class="mini-filter">
-            <label for="unscheduled-bodega">Bodega</label>
-            <select id="unscheduled-bodega">
-              <option value="">Todas</option>
-            </select>
-          </div>
-        </div>
-        <div id="unscheduled-list" class="list"></div>
-      </div>
-
-      <div class="card">
-        <div class="section-head">
-          <div>
             <h2 class="h2">Personal con cupos pendientes</h2>
-            <div class="hint" style="margin-top:-6px;">Colaboradores con saldo visible mayor a 0.</div>
+            <div class="hint" style="margin-top:-6px;">Colaboradores con saldo visible mayor a 0 y sin solicitudes pendientes o pre-aprobadas.</div>
           </div>
           <div class="mini-filter">
             <label for="pending-bodega">Bodega</label>
@@ -197,6 +176,16 @@
           </div>
         </div>
         <div id="balance-pending-list" class="list"></div>
+      </div>
+
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2 class="h2">Pendiente por autorizar</h2>
+            <div class="hint" style="margin-top:-6px;">Colaboradores con solicitudes pendientes o pre-aprobadas de autorización.</div>
+          </div>
+        </div>
+        <div id="pending-authorization-list" class="list"></div>
       </div>
     </div>
 
@@ -243,6 +232,6 @@
   <!-- Supabase -->
   <script src="supabase-config.js"></script>
   <script type="module" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm"></script>
-  <script type="module" src="report-summary.js?v=2026.08.24-2"></script>
+  <script type="module" src="report-summary.js?v=2026.08.24-8"></script>
 </body>
 </html>

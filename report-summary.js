@@ -32,16 +32,13 @@ const $kComprometidos = document.getElementById('kpi-comprometidos');
 const $kComprometidosSub = document.getElementById('kpi-comprometidos-sub');
 const $kRestantes = document.getElementById('kpi-restantes');
 const $kRestantesSub = document.getElementById('kpi-restantes-sub');
-const $kSinProgramar = document.getElementById('kpi-sin-programar');
-const $kSinProgramarSub = document.getElementById('kpi-sin-programar-sub');
 const $kCuposPend = document.getElementById('kpi-cupos-pend');
 const $kCuposPendSub = document.getElementById('kpi-cupos-pend-sub');
 
 const $todayList    = document.getElementById('today-list');
 const $upcomingList = document.getElementById('upcoming-list');
-const $unscheduledList = document.getElementById('unscheduled-list');
 const $balancePendingList = document.getElementById('balance-pending-list');
-const $unscheduledBodega = document.getElementById('unscheduled-bodega');
+const $pendingAuthorizationList = document.getElementById('pending-authorization-list');
 const $pendingBodega = document.getElementById('pending-bodega');
 const $weekBody     = document.querySelector('#week-table tbody');
 const $monthBody    = document.querySelector('#month-table tbody');
@@ -135,8 +132,8 @@ async function loadEmployees(){
   $loc.innerHTML = `<option value="">Todas</option>` + locs.map(l => `<option value="${l}">${l}</option>`).join('');
 
   const bodegaOptions = `<option value="">Todas</option>` + bodegas.map(b => `<option value="${b}">${b}</option>`).join('');
-  if ($unscheduledBodega) $unscheduledBodega.innerHTML = bodegaOptions;
   if ($pendingBodega) $pendingBodega.innerHTML = bodegaOptions;
+
 }
 
 function monthKey(d){
@@ -565,7 +562,6 @@ async function refresh(){
     const summaries = await loadSummariesForEmployees(employeeIds);
     const summariesEnriched = summaries.map(s => {
       const empBlocks = annualBlocksByEmp.get(s.employee_id) || [];
-      const hasAnyProgrammed = empBlocks.length > 0;
       const hasPendingRequest = empBlocks.some(b => b.status === 'Pendiente');
       const hasPreapprovedRequest = empBlocks.some(b => b.status === 'Pre-aprobado');
       const programmedDays = empBlocks
@@ -578,7 +574,6 @@ async function refresh(){
         ...s,
         usado_2026: programmedDays,
         restante_visible: restanteVisible,
-        hasAnyProgrammed,
         hasPendingRequest,
         hasPreapprovedRequest
       };
@@ -606,22 +601,20 @@ async function refresh(){
     const totalComprometidos = totalDiasAprobados + totalPendPorTomar;
     const totalFaltaProgramar = Math.max(0, totalCupo - totalComprometidos);
 
-    const unscheduledBodega = $unscheduledBodega?.value || '';
     const pendingBodega = $pendingBodega?.value || '';
 
-    const unscheduledEmployees = summariesEnriched
-      .filter(r => num(r.restante_visible) > 0 && !r.hasAnyProgrammed)
-      .filter(r => !unscheduledBodega || ((r.bodega ?? '(Sin bodega)') === unscheduledBodega))
-      .sort((a,b) => a.nombre.localeCompare(b.nombre, 'es-MX'));
-
     const pendingBalanceEmployees = summariesEnriched
-      .filter(r => num(r.restante_visible) > 0)
+      .filter(r => num(r.restante_visible) > 0 && !r.hasPendingRequest && !r.hasPreapprovedRequest)
       .filter(r => !pendingBodega || ((r.bodega ?? '(Sin bodega)') === pendingBodega))
       .sort((a,b) => {
         const diff = num(b.restante_visible) - num(a.restante_visible);
         if (diff !== 0) return diff;
         return a.nombre.localeCompare(b.nombre, 'es-MX');
       });
+
+    const pendingAuthorizationEmployees = summariesEnriched
+      .filter(r => r.hasPendingRequest || r.hasPreapprovedRequest)
+      .sort((a,b) => a.nombre.localeCompare(b.nombre, 'es-MX'));
 
     // KPI: hoy
     const t = todayUTC();
@@ -661,10 +654,8 @@ async function refresh(){
     $kComprometidosSub.textContent = `${totalDiasAprobados} ya tomados + ${totalPendPorTomar} por tomar`;
     $kRestantes.textContent = String(totalFaltaProgramar);
     $kRestantesSub.textContent = `${totalRestante} restante(s) visibles en resumen base`;
-    $kSinProgramar.textContent = String(unscheduledEmployees.length);
-    $kSinProgramarSub.textContent = `${unscheduledEmployees.reduce((acc, r) => acc + num(r.restante_visible), 0)} día(s) por programar`;
     $kCuposPend.textContent = String(pendingBalanceEmployees.length);
-    $kCuposPendSub.textContent = `${pendingBalanceEmployees.filter(r => r.hasPendingRequest).length} pendiente(s) · ${pendingBalanceEmployees.filter(r => r.hasPreapprovedRequest).length} pre-aprobada(s)`;
+    $kCuposPendSub.textContent = 'Sin solicitudes pendientes o pre-aprobadas';
 
     // Listas
     renderList($todayList,
@@ -679,8 +670,8 @@ async function refresh(){
 
     renderList($upcomingList, upcoming, 'No hay próximas salidas en el rango/filtros actuales.');
 
-    renderEmployeeSummaryList($unscheduledList, unscheduledEmployees, 'Nadie tiene saldo pendiente sin programar con los filtros actuales.');
     renderEmployeeSummaryList($balancePendingList, pendingBalanceEmployees.slice(0, 60), 'No hay colaboradores con saldo pendiente en los filtros actuales.');
+    renderEmployeeSummaryList($pendingAuthorizationList, pendingAuthorizationEmployees, 'No hay solicitudes pendientes de autorización con los filtros actuales.');
 
     // Resumen semanal: próximas 8 semanas (pico fuera) + aprobadas/pendientes que inician en esa semana
     // Para esto necesitamos un rango ampliado (hoy → +8 semanas)
@@ -829,7 +820,7 @@ function queueRefresh(){
   clearTimeout(debounce);
   debounce = setTimeout(() => refresh(), 180);
 }
-[$status, $bodega, $depto, $loc, $unscheduledBodega, $pendingBodega].forEach(el => el && el.addEventListener('change', queueRefresh));
+[$status, $bodega, $depto, $loc, $pendingBodega].forEach(el => el && el.addEventListener('change', queueRefresh));
 $q.addEventListener('input', queueRefresh);
 $refresh.addEventListener('click', refresh);
 
