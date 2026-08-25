@@ -112,6 +112,7 @@ let EMP = [];            // employees_public_v2
 let EMP_BY_ID = {};      // id -> employee
 let CACHE_MONTH = new Map(); // key yyyy-mm -> rows
 let SUMMARY_CACHE = new Map(); // emp_id -> resumen 2026
+let HOLIDAYS_2026 = null; // fechas no laborables, en formato YYYY-MM-DD
 
 async function loadEmployees(){
   const rpc = await supabase.rpc('employees_public_v2');
@@ -174,7 +175,20 @@ function monthsBetweenUTC(fromDate, toDate){
   return out;
 }
 
+async function loadHolidays2026(){
+  if (HOLIDAYS_2026) return HOLIDAYS_2026;
+
+  const { data, error } = await supabase.rpc('vac_feriados_2026');
+  if (error) throw new Error(error.message || 'Error leyendo feriados');
+
+  HOLIDAYS_2026 = new Set((Array.isArray(data) ? data : [])
+    .map(row => String(row?.d || '').slice(0, 10))
+    .filter(Boolean));
+  return HOLIDAYS_2026;
+}
+
 async function loadRangeRows(fromDate, toDate){
+  const holidays = await loadHolidays2026();
   const months = monthsBetweenUTC(fromDate, toDate);
   const all = [];
   for(const m of months){
@@ -187,10 +201,12 @@ async function loadRangeRows(fromDate, toDate){
   return all.filter(r => {
     if(!r?.day) return false;
     if (r.day < fromISO || r.day > toISO) return false;
-    // excluir domingo robusto
+    // El calendario devuelve días naturales; el resumen debe contar
+    // únicamente días hábiles, igual que employees_vac_summary_2026.
     const dt = parseISO(r.day);
     const dow = dt.getUTCDay();
     if (dow === 0) return false;
+    if (holidays.has(r.day)) return false;
     return true;
   });
 }
