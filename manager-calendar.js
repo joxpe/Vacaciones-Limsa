@@ -55,8 +55,8 @@ function isSundayISO(iso){
 // Estado actual (bodegas = arreglo multiselección)
 let CUR = { month: new Date(), bodegas: [], depto: '', loc: '' };
 
-// Feriados 2026
-let HOLIDAYS_2026 = new Set();
+let HOLIDAYS = new Set();
+let HOLIDAY_YEAR = null;
 // Fechas bloqueadas activas: YYYY-MM-DD -> descripción
 let BLACKOUTS_BY_DATE = new Map();
 
@@ -67,14 +67,20 @@ let BODS_ALL = [];                 // todas las bodegas normalizadas
 let DEPTOS_ALL = [];               // todos los deptos
 let LOC_ALL = [];                  // todas las localizaciones
 
-async function loadHolidays(){
+async function loadHolidays(year){
+  if (HOLIDAY_YEAR === year) return true;
   try {
-    const { data, error } = await withTimeout(supabase.rpc('vac_feriados_2026'), 'Cargar feriados');
-    if (error) { console.warn('No pude cargar feriados 2026:', error.message); return false; }
-    HOLIDAYS_2026 = new Set((data || []).map(r => r.d));
+    let result = await withTimeout(supabase.rpc('vac_holidays', { p_year: year }), 'Cargar feriados');
+    if (result.error && year === 2026) {
+      result = await withTimeout(supabase.rpc('vac_feriados_2026'), 'Cargar feriados');
+    }
+    const { data, error } = result;
+    if (error) { console.warn(`No pude cargar feriados ${year}:`, error.message); return false; }
+    HOLIDAYS = new Set((data || []).map(r => r.d));
+    HOLIDAY_YEAR = year;
     return true;
   } catch (e) {
-    console.warn('Error inesperado cargando feriados 2026:', e);
+    console.warn(`Error inesperado cargando feriados ${year}:`, e);
     return false;
   }
 }
@@ -215,13 +221,8 @@ function buildCalendarGrid(monthDate){
       cell.classList.add('buenfin');
       cell.dataset.blackoutLabel = blackoutLabel;
     }
-    // Buen Fin (compatibilidad si no existe en la tabla de bloqueados)
-    else if (dateStr >= "2026-11-13" && dateStr <= "2026-11-16") {
-      cell.classList.add('buenfin');
-      cell.dataset.blackoutLabel = 'Buen Fin';
-    }
     // Otros feriados (no laborales)
-    else if (HOLIDAYS_2026.has(dateStr)) {
+    else if (HOLIDAYS.has(dateStr)) {
       cell.classList.add('holiday');
     }
 
@@ -254,6 +255,7 @@ async function loadMonth(){
 
   const first = firstDayOfMonth(CUR.month);
   const last  = lastDayOfMonth(CUR.month);
+  await loadHolidays(CUR.month.getFullYear());
 
   let data, error;
   try {
@@ -356,13 +358,9 @@ $next.addEventListener('click', () => { CUR.month = new Date(CUR.month.getFullYe
 (async function init(){
   CUR.month = new Date();
   const okFilters = await loadFilters();
-  const okHolidays = await loadHolidays();
   const okBlackouts = await loadBlackouts();
   buildCalendarGrid(CUR.month);
   if (okFilters !== false) await loadMonth();
-  if (okHolidays === false && !$msg.textContent) {
-    showMsg('No pude cargar feriados, pero el calendario sigue disponible.', false);
-  }
   if (okBlackouts === false && !$msg.textContent) {
     showMsg('No pude cargar fechas bloqueadas, pero el calendario sigue disponible.', false);
   }

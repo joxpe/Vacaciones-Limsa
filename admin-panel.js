@@ -168,6 +168,13 @@ const blackoutCancelBtn = $("#blackout-cancel-btn");
 const blackoutRefreshBtn= $("#blackout-refresh-btn");
 const blackoutMsg       = $("#blackout-msg");
 const blackoutList      = $("#blackout-list");
+const periodYear        = $("#period-year");
+const periodActive      = $("#period-active");
+const periodCarryover   = $("#period-carryover");
+const periodSaveBtn     = $("#period-save-btn");
+const periodRefreshBtn  = $("#period-refresh-btn");
+const periodMsg         = $("#period-msg");
+const periodList        = $("#period-list");
 
 let HOLIDAY_EDIT_DATE = null;
 let BLACKOUT_EDIT_ID = null;
@@ -329,6 +336,7 @@ async function syncAdminState() {
 
     await loadVacations();
     await loadEmployeesAdmin();
+    await loadVacationPeriods();
   } finally {
     ADMIN_SYNC_IN_PROGRESS = false;
 
@@ -372,6 +380,7 @@ loginBtn.addEventListener("click", async () => {
 
     await loadVacations();
     await loadEmployeesAdmin();
+    await loadVacationPeriods();
     loginScreen.classList.add("hidden");
     adminPanel.classList.remove("hidden");
   } catch (e) {
@@ -395,6 +404,7 @@ refreshBtn.addEventListener("click", async () => {
   if (!ok) return;
   await loadVacations();
   await loadEmployeesAdmin();
+  await loadVacationPeriods();
 });
 
 // Filtro Bodega (multiselección)
@@ -1084,21 +1094,13 @@ async function authorizeFromModal() {
   if (!req) return;
   if (!confirm('¿Autorizar esta solicitud?')) return;
 
-  let okForce = false;
-  try {
-    const { data, error } = await supabase.rpc("vacation_requests_approve_admin_force", { req_id: req.id });
-    if (!error && data === true) okForce = true;
-  } catch(_e) { /* opcional */ }
-
-  if (!okForce) {
-    const { data, error } = await supabase.rpc("vacation_requests_approve", { req_id: req.id });
-    if (error || data !== true) {
-      if (coverModalMsg) {
-        coverModalMsg.textContent = 'No se pudo autorizar: ' + (error?.message || 'RPC devolvió falso');
-        coverModalMsg.className = 'msg err';
-      }
-      return;
+  const { data, error } = await supabase.rpc("vacation_requests_approve", { req_id: req.id });
+  if (error || data !== true) {
+    if (coverModalMsg) {
+      coverModalMsg.textContent = 'No se pudo autorizar: ' + (error?.message || 'RPC devolvió falso');
+      coverModalMsg.className = 'msg err';
     }
+    return;
   }
 
   COVERAGE_CTX.changed = true;
@@ -1170,24 +1172,12 @@ window.editDate = async (id, start, end) => {
   const newEnd   = prompt("Nueva fecha de fin (YYYY-MM-DD):", end);
   if (!newStart || !newEnd) return;
 
-  // 1) Intentar edición forzada (admin) si existe
-  let okForce = false;
-  try {
-    const { data, error } = await supabase.rpc("vacation_requests_update_dates_admin_force", {
-      req_id: id, new_start: newStart, new_end: newEnd
-    });
-    if (!error && data === true) okForce = true;
-  } catch (_e) { /* puede no existir la función */ }
-
-  // 2) Fallback a la edición normal
-  if (!okForce) {
-    const { data, error } = await supabase.rpc("vacation_requests_update_dates", {
-      req_id: id, new_start: newStart, new_end: newEnd
-    });
-    if (error || data !== true) {
-      alert("No se pudo editar: " + (error?.message || "RPC devolvió falso"));
-      return;
-    }
+  const { data, error } = await supabase.rpc("vacation_requests_update_dates", {
+    req_id: id, new_start: newStart, new_end: newEnd
+  });
+  if (error || data !== true) {
+    alert("No se pudo editar: " + (error?.message || "RPC devolvió falso"));
+    return;
   }
 
   await loadVacations();
@@ -1788,24 +1778,10 @@ async function createVacationRequestFromForm() {
   const e = (vacEnd?.value || '').trim();
   if (!empId || !s || !e) throw new Error('Falta empleado, inicio o fin.');
   if (e < s) throw new Error('La fecha fin no puede ser menor a la inicial.');
+  if (s.slice(0, 4) !== e.slice(0, 4)) throw new Error('La solicitud debe quedar dentro de un solo año.');
 
-  let createdId = null;
-  let lastErr = null;
-  try {
-    const { data, error } = await supabase.rpc('vacation_requests_create_admin_force', {
-      emp_id: empId, s, e, auto_approve: false
-    });
-    if (error) lastErr = error;
-    if (!error && data) createdId = data;
-  } catch (e1) {
-    lastErr = e1;
-  }
-
-  if (!createdId) {
-    const { data, error } = await supabase.rpc('vacation_requests_create', { emp_id: empId, s, e });
-    if (error || !data) throw (error || lastErr || new Error('RPC devolvió nulo'));
-    createdId = data;
-  }
+  const { data: createdId, error } = await supabase.rpc('vacation_requests_create', { emp_id: empId, s, e });
+  if (error || !createdId) throw (error || new Error('RPC devolvió nulo'));
 
   const selectedName = (vacEmpSearch?.dataset.selectedName || vacEmpSearch?.value || '').trim();
   return {
@@ -1853,6 +1829,70 @@ if (vacCreateApproveBtn) {
       setVacActionBusy(false);
     }
   });
+}
+
+function setPeriodMsg(text, ok=true){
+  if (!periodMsg) return;
+  periodMsg.textContent = text || '';
+  periodMsg.className = 'msg ' + (ok ? 'ok' : 'err');
+}
+
+function renderVacationPeriods(rows){
+  if (!periodList) return;
+  if (!rows?.length) {
+    periodList.innerHTML = '<tr><td colspan="6" class="muted">Sin periodos configurados.</td></tr>';
+    return;
+  }
+  periodList.innerHTML = rows.map(row => `
+    <tr>
+      <td><strong>${escapeHtml(row.year)}</strong></td>
+      <td>${row.is_active ? 'Sí' : 'No'}</td>
+      <td>${row.carryover_enabled ? 'Sí' : 'No'}</td>
+      <td>${escapeHtml(row.holiday_count ?? 0)}</td>
+      <td>${escapeHtml(row.blackout_count ?? 0)}</td>
+      <td><button type="button" data-period-edit="${escapeHtml(row.year)}"
+        data-active="${row.is_active}" data-carryover="${row.carryover_enabled}">✏️ Configurar</button></td>
+    </tr>`).join('');
+}
+
+async function loadVacationPeriods(){
+  if (!periodList) return;
+  periodList.innerHTML = '<tr><td colspan="6">Cargando...</td></tr>';
+  const { data, error } = await supabase.rpc('vacation_years_list');
+  if (error) {
+    renderVacationPeriods([]);
+    setPeriodMsg('Falta instalar la migración multiaño en Supabase: ' + error.message, false);
+    return;
+  }
+  renderVacationPeriods(data || []);
+  if (periodYear && !periodYear.value) {
+    const years = (data || []).map(r => Number(r.year)).filter(Number.isFinite);
+    periodYear.value = String(Math.max(new Date().getFullYear() + 1, ...(years.length ? years : [2026])));
+  }
+  setPeriodMsg('', true);
+}
+
+async function saveVacationPeriod(){
+  const year = Number(periodYear?.value);
+  const isActive = String(periodActive?.value) === 'true';
+  const carryover = String(periodCarryover?.value) === 'true';
+  if (!Number.isInteger(year) || year < 2020 || year > 2100) {
+    setPeriodMsg('Captura un año válido entre 2020 y 2100.', false);
+    return;
+  }
+  periodSaveBtn.disabled = true;
+  const { data, error } = await supabase.rpc('vacation_year_set', {
+    p_year: year,
+    p_is_active: isActive,
+    p_carryover_enabled: carryover
+  });
+  periodSaveBtn.disabled = false;
+  if (error || data !== true) {
+    setPeriodMsg('No se pudo guardar: ' + (error?.message || 'RPC devolvió falso'), false);
+    return;
+  }
+  setPeriodMsg(`Periodo ${year} actualizado.`, true);
+  await loadVacationPeriods();
 }
 
 
@@ -2084,6 +2124,7 @@ async function saveBlackoutForm(){
     "solicitudes": document.getElementById("tab-solicitudes"),
     "alta-vac": document.getElementById("tab-alta-vac"),
     "colaboradores": document.getElementById("tab-colaboradores"),
+    "periodos": document.getElementById("tab-periodos"),
     "feriados": document.getElementById("tab-feriados"),
     "blackouts": document.getElementById("tab-blackouts"),
   };
@@ -2100,6 +2141,7 @@ async function saveBlackoutForm(){
 
     if (key === "feriados") loadHolidaysAdmin();
     if (key === "blackouts") loadBlackoutsAdmin();
+    if (key === "periodos") loadVacationPeriods();
 
     // Fix: cuando cambias de módulo, recalcula layout si hay algo sticky
     window.dispatchEvent(new Event("resize"));
@@ -2162,6 +2204,17 @@ if (holidayList) holidayList.addEventListener('click', async (ev) => {
   const source = tds[2]?.textContent || '';
   if (action === 'edit') editHoliday(date, name, source);
   if (action === 'delete') await deleteHoliday(date);
+});
+
+if (periodSaveBtn) periodSaveBtn.addEventListener('click', saveVacationPeriod);
+if (periodRefreshBtn) periodRefreshBtn.addEventListener('click', loadVacationPeriods);
+if (periodList) periodList.addEventListener('click', (ev) => {
+  const btn = ev.target.closest('button[data-period-edit]');
+  if (!btn) return;
+  periodYear.value = btn.dataset.periodEdit;
+  periodActive.value = btn.dataset.active === 'true' ? 'true' : 'false';
+  periodCarryover.value = btn.dataset.carryover === 'true' ? 'true' : 'false';
+  setPeriodMsg(`Editando periodo ${btn.dataset.periodEdit}.`, true);
 });
 
 // Carga inicial normal

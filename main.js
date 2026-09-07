@@ -14,18 +14,24 @@ const $submit  = document.getElementById('submit');
 const $msg     = document.getElementById('msg');
 const $my      = document.getElementById('my-requests');
 const $empInfo = document.getElementById('emp-info');
+const $year    = document.getElementById('vacation-year');
 
 const $loc      = document.getElementById('v-localizacion');
 const $dep      = document.getElementById('v-departamento');
 const $bod      = document.getElementById('v-bodega');
 const $ingreso  = document.getElementById('v-ingreso');
 const $cupo     = document.getElementById('v-cupo');
+const $carryover= document.getElementById('v-carryover');
+const $available= document.getElementById('v-available');
 const $usado    = document.getElementById('v-usado');
 const $restante = document.getElementById('v-restante');
+const $eligible = document.getElementById('v-eligible');
 const $antig    = document.getElementById('v-antig');
 
 let EMPLOYEES = [];
 let CURRENT_EMP = null;
+let ACTIVE_YEARS = [];
+let CURRENT_YEAR = new Date().getFullYear();
 
 // ==== Utilidades ====
 function showMsg(text, ok=false){
@@ -116,16 +122,46 @@ function countDaysInclusive(startISO, endISO){
   return Math.floor(ms / 86400000) + 1;
 }
 
-async function loadEmployeeVacationRows(empId){
+function syncYearUi(){
+  CURRENT_YEAR = Number($year?.value) || CURRENT_YEAR;
+  document.querySelectorAll('.selected-year-label').forEach(el => {
+    el.textContent = String(CURRENT_YEAR);
+  });
+  const min = `${CURRENT_YEAR}-01-01`;
+  const max = `${CURRENT_YEAR}-12-31`;
+  for (const input of [$start, $end]) {
+    input.min = min;
+    input.max = max;
+    if (input.value && !input.value.startsWith(`${CURRENT_YEAR}-`)) input.value = '';
+  }
+}
+
+async function loadVacationYears(){
+  const { data, error } = await supabase.rpc('vacation_years_list');
+  const active = !error && Array.isArray(data)
+    ? data.filter(row => row.is_active).map(row => Number(row.year)).filter(Number.isFinite)
+    : [2026];
+  ACTIVE_YEARS = [...new Set(active)].sort((a,b) => a-b);
+  if (!ACTIVE_YEARS.length) throw new Error('No hay periodos vacacionales activos.');
+  const current = new Date().getFullYear();
+  CURRENT_YEAR = ACTIVE_YEARS.includes(current) ? current : ACTIVE_YEARS[ACTIVE_YEARS.length - 1];
+  $year.innerHTML = ACTIVE_YEARS.map(y => `<option value="${y}">${y}</option>`).join('');
+  $year.value = String(CURRENT_YEAR);
+  syncYearUi();
+}
+
+async function loadEmployeeVacationRows(empId, year = CURRENT_YEAR){
   const rpc = await supabase.rpc('vacation_requests_get', { emp_id: empId });
-  if(!rpc.error && Array.isArray(rpc.data)) return rpc.data;
+  if(!rpc.error && Array.isArray(rpc.data)) {
+    return rpc.data.filter(r => String(r.start_date || '').startsWith(`${year}-`));
+  }
 
   const fb = await supabase
     .from('vacation_requests')
     .select('id, employee_id, start_date, end_date, status, created_at, biz_days')
     .eq('employee_id', empId)
-    .gte('start_date', '2026-01-01')
-    .lte('end_date', '2026-12-31')
+    .gte('start_date', `${year}-01-01`)
+    .lte('end_date', `${year}-12-31`)
     .order('start_date', { ascending: true });
 
   if (fb.error) throw fb.error;
@@ -229,16 +265,33 @@ async function loadEmployeeInfo(empId){
   if(e1){ showMsg('No se pudo leer información del colaborador: ' + e1.message); return; }
   const info = (infoArr && infoArr[0]) ? infoArr[0] : null;
 
-  const { data: sumArr, error: e2 } = await supabase.rpc('employees_vac_summary_2026', { emp_id: empId });
+  let { data: sumArr, error: e2 } = await supabase.rpc('employees_vac_summary', {
+    p_emp_id: empId,
+    p_year: CURRENT_YEAR
+  });
+  if (e2 && CURRENT_YEAR === 2026) {
+    const legacy = await supabase.rpc('employees_vac_summary_2026', { emp_id: empId });
+    e2 = legacy.error;
+    sumArr = (legacy.data || []).map(s => ({
+      year: 2026,
+      base_entitlement: s.cupo_2026,
+      carryover: 0,
+      available: s.cupo_visible,
+      used: s.usado_2026,
+      remaining: s.restante_visible,
+      eligible_from: s.elegible_desde,
+      is_active: true
+    }));
+  }
   if (empId !== CURRENT_EMP) return;
   if(e2){ showMsg('No se pudo leer el resumen de vacaciones: ' + e2.message); return; }
   const summary = (sumArr && sumArr[0]) ? sumArr[0] : {
-    cupo_2026: 0, usado_2026: 0, restante_2026: 0, elegible_desde: null, restante_visible: 0, cupo_visible: 0
+    base_entitlement: 0, carryover: 0, available: 0, used: 0, remaining: 0, eligible_from: null
   };
 
   let requestRows = [];
   try {
-    requestRows = await loadEmployeeVacationRows(empId);
+    requestRows = await loadEmployeeVacationRows(empId, CURRENT_YEAR);
   } catch (_e) {
     requestRows = [];
   }
@@ -252,19 +305,12 @@ async function loadEmployeeInfo(empId){
     $antig.textContent = yearsMonthsLabel(info?.fecha_ingreso, new Date());
   }
 
-  const cupoVis = (typeof summary?.cupo_visible === 'number')
-    ? summary.cupo_visible
-    : (info?.cupo_2026 ?? summary?.cupo_2026 ?? 0);
-  $cupo.textContent  = cupoVis;
-  $usado.textContent = (summary?.usado_2026 ?? 0);
-
-  const backendRestVis = (typeof summary?.restante_visible === 'number')
-    ? summary.restante_visible
-    : (summary?.restante_2026 ?? 0);
-  const fallbackRestVis = computeVisibleRemaining(summary, requestRows);
-  const hasPendingOrPre = (requestRows || []).some(r => ['Pendiente', 'Pre-aprobado'].includes(String(r?.status || '').trim()));
-  const restVis = hasPendingOrPre ? fallbackRestVis : backendRestVis;
-  $restante.textContent = restVis;
+  $cupo.textContent = summary?.base_entitlement ?? 0;
+  $carryover.textContent = summary?.carryover ?? 0;
+  $available.textContent = summary?.available ?? 0;
+  $usado.textContent = summary?.used ?? 0;
+  $restante.textContent = summary?.remaining ?? 0;
+  $eligible.textContent = fmt(summary?.eligible_from);
 
   showMsg('', true);
   $empInfo.hidden = false;
@@ -389,14 +435,14 @@ async function loadMine(empId){
   if (empId !== CURRENT_EMP) return;
 
   if(!rpc.error && rpc.data){
-    rows = rpc.data;
+    rows = rpc.data.filter(r => String(r.start_date || '').startsWith(`${CURRENT_YEAR}-`));
   } else {
     const s = await supabase
       .from('vacation_requests')
       .select('id, employee_id, start_date, end_date, status, created_at, pdf_folio, printed_at, print_count')
       .eq('employee_id', empId)
-      .gte('start_date', '2026-01-01')
-      .lte('end_date', '2026-12-31')
+      .gte('start_date', `${CURRENT_YEAR}-01-01`)
+      .lte('end_date', `${CURRENT_YEAR}-12-31`)
       .order('start_date', { ascending: true });
     if (empId !== CURRENT_EMP) return;
     rows = s.data; err = s.error;
@@ -424,7 +470,7 @@ async function loadMine(empId){
     return;
   }
   if(!rows || rows.length === 0){
-    $my.textContent = 'Sin solicitudes para 2026.';
+    $my.textContent = `Sin solicitudes para ${CURRENT_YEAR}.`;
     return;
   }
 
@@ -494,6 +540,9 @@ async function submitRequest(){
   if(!empId) return showMsg('Selecciona tu nombre.');
   if(!s || !t) return showMsg('Completa las fechas.');
   if(s > t) return showMsg('La fecha de inicio no puede ser posterior al fin.');
+  if (!s.startsWith(`${CURRENT_YEAR}-`) || !t.startsWith(`${CURRENT_YEAR}-`)) {
+    return showMsg(`Las fechas deben pertenecer al periodo ${CURRENT_YEAR}.`);
+  }
 
   $submit.disabled = true;
 
@@ -536,6 +585,16 @@ $wh.addEventListener('change', () => {
   $start.value = '';
   $end.value = '';
   applyFilter();
+});
+
+$year.addEventListener('change', async () => {
+  syncYearUi();
+  showMsg('', true);
+  if (CURRENT_EMP) {
+    $empInfo.hidden = true;
+    await loadEmployeeInfo(CURRENT_EMP);
+    await loadMine(CURRENT_EMP);
+  }
 });
 
 $emp.addEventListener('change', async (e) => {
@@ -589,4 +648,13 @@ $start.addEventListener('change', () => {
 
 $submit.addEventListener('click', submitRequest);
 
-loadEmployees();
+async function init(){
+  try {
+    await loadVacationYears();
+    await loadEmployees();
+  } catch (error) {
+    showMsg('No se pudo iniciar: ' + (error?.message || error));
+  }
+}
+
+init();

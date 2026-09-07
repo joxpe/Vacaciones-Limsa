@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>Administrador Vacaciones</title>
-  <link rel="stylesheet" href="admin-panel.css?v=20260406-frontend-stable-1">
+  <link rel="stylesheet" href="admin-panel.css?v=2026.09.07.2">
 </head>
 <body>
 
@@ -30,11 +30,13 @@
       <button id="refresh-btn">🔄 Actualizar</button>
     </div>
     <h1>Panel de Vacaciones (Administrador)</h1>
+    <div class="muted" style="text-align:right;">Versión 2026.09.07.2</div>
 
     <nav class="ap-tabs" aria-label="Módulos">
       <button type="button" class="ap-tab active" data-tab="solicitudes">Solicitudes</button>
       <button type="button" class="ap-tab" data-tab="alta-vac">Alta vacaciones</button>
       <button type="button" class="ap-tab" data-tab="colaboradores">Colaboradores</button>
+      <button type="button" class="ap-tab" data-tab="periodos">Periodos</button>
       <button type="button" class="ap-tab" data-tab="feriados">Feriados</button>
       <button type="button" class="ap-tab" data-tab="blackouts">Fechas bloqueadas</button>
     </nav>
@@ -213,6 +215,57 @@
       </div>
     </section>
 
+    <!-- Módulo: Periodos vacacionales -->
+    <section id="tab-periodos" class="ap-module hidden" aria-hidden="true">
+      <div class="card">
+        <h2 style="margin-top:0;">Periodos vacacionales</h2>
+        <p class="muted">Activa un año para permitir solicitudes. Con arrastre, el saldo restante del año anterior se suma al cupo del nuevo periodo.</p>
+
+        <div class="holiday-form-grid">
+          <div>
+            <label for="period-year">Año</label>
+            <input type="number" id="period-year" min="2020" max="2100" step="1">
+          </div>
+          <div>
+            <label for="period-active">Activo</label>
+            <select id="period-active">
+              <option value="true" selected>Sí</option>
+              <option value="false">No</option>
+            </select>
+          </div>
+          <div>
+            <label for="period-carryover">Arrastrar saldo anterior</label>
+            <select id="period-carryover">
+              <option value="true" selected>Sí</option>
+              <option value="false">No</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="holiday-actions">
+          <button type="button" id="period-save-btn">💾 Guardar periodo</button>
+          <button type="button" id="period-refresh-btn" class="secondary">🔄 Actualizar</button>
+        </div>
+        <div id="period-msg" class="msg"></div>
+
+        <div class="holiday-list-wrap">
+          <table class="holiday-table">
+            <thead>
+              <tr>
+                <th>Año</th>
+                <th>Activo</th>
+                <th>Arrastre</th>
+                <th>Feriados</th>
+                <th>Bloqueadas</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="period-list"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <!-- Módulo: Feriados -->
     <section id="tab-feriados" class="ap-module hidden" aria-hidden="true">
       <div class="card">
@@ -360,6 +413,6 @@
     </div>
   </div>
 
-  <script type="module" src="admin-panel.js?v=20260406-frontend-stable-1"></script>
+  <script type="module" src="admin-panel.js?v=2026.09.07.2"></script>
 </body>
 </html>

@@ -3,12 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Vacaciones LIMSA 2026</title>
+  <title>Vacaciones LIMSA</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="container">
-    <h1>Solicitar Vacaciones 2026</h1>
+    <h1>Solicitar Vacaciones</h1>
+    <div class="hint" style="text-align:right;">Versión 2026.09.07.2</div>
 
     <div class="calendar-link">
       <a href="manager-calendar.html" class="calendar-button" title="Ver calendario del equipo">
@@ -31,6 +32,11 @@
     <p class="hint">Selecciona tu nombre y el rango de fechas. Las reglas se validan automáticamente (status = Pendiente).</p>
 
     <div class="card">
+      <label for="vacation-year">Periodo vacacional</label>
+      <select id="vacation-year">
+        <option value="">Cargando periodos…</option>
+      </select>
+
       <label for="warehouse">Bodega</label>
       <select id="warehouse">
         <option value="">Todas las bodegas</option>
@@ -49,9 +55,12 @@
         <div><strong>Departamento:</strong> <span id="v-departamento">-</span></div>
         <div><strong>Bodega:</strong> <span id="v-bodega">-</span></div>
         <div><strong>Ingreso:</strong> <span id="v-ingreso">-</span> <small>(<span id="v-antig">-</span> años)</small></div>
-        <div><strong>Cupo 2026:</strong> <span id="v-cupo">-</span></div>
-        <div><strong>Usados 2026:</strong> <span id="v-usado">-</span></div>
-        <div><strong>Restantes 2026:</strong> <span id="v-restante">-</span></div>
+        <div><strong>Cupo <span class="selected-year-label">—</span>:</strong> <span id="v-cupo">-</span></div>
+        <div><strong>Arrastre anterior:</strong> <span id="v-carryover">-</span></div>
+        <div><strong>Disponibles:</strong> <span id="v-available">-</span></div>
+        <div><strong>Programados:</strong> <span id="v-usado">-</span></div>
+        <div><strong>Restantes:</strong> <span id="v-restante">-</span></div>
+        <div><strong>Elegible desde:</strong> <span id="v-eligible">-</span></div>
       </div>
 
       <div class="grid">
@@ -70,7 +79,7 @@
     </div>
 
     <details class="card">
-      <summary>Ver mis solicitudes (2026)</summary>
+      <summary>Ver mis solicitudes (<span class="selected-year-label">—</span>)</summary>
       <div id="my-requests"></div>
     </details>
   </div>
@@ -78,6 +87,6 @@
   <script src="supabase-config.js"></script>
   <script type="module" src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-  <script type="module" src="main.js?v=2026.04.02-pdf-vale-1"></script>
+  <script type="module" src="main.js?v=2026.09.07.2"></script>
 </body>
 </html>

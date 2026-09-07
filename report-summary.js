@@ -16,6 +16,7 @@ const $depto   = document.getElementById('depto');
 const $loc     = document.getElementById('loc');
 const $refresh = document.getElementById('refresh');
 const $msg     = document.getElementById('msg');
+const $summaryYear = document.getElementById('summary-year');
 
 const $kToday = document.getElementById('kpi-today');
 const $kTodaySub = document.getElementById('kpi-today-sub');
@@ -108,8 +109,9 @@ function initialStatusBadge(status){
 let EMP = [];            // employees_public_v2
 let EMP_BY_ID = {};      // id -> employee
 let CACHE_MONTH = new Map(); // key yyyy-mm -> rows
-let SUMMARY_CACHE = new Map(); // emp_id -> resumen 2026
-let HOLIDAYS_2026 = null; // fechas no laborables, en formato YYYY-MM-DD
+let SUMMARY_CACHE = new Map(); // year:emp_id -> resumen anual
+let HOLIDAYS_BY_YEAR = new Map();
+let SUMMARY_YEAR = new Date().getFullYear();
 
 async function loadEmployees(){
   const rpc = await supabase.rpc('employees_public_v2');
@@ -172,20 +174,26 @@ function monthsBetweenUTC(fromDate, toDate){
   return out;
 }
 
-async function loadHolidays2026(){
-  if (HOLIDAYS_2026) return HOLIDAYS_2026;
-
-  const { data, error } = await supabase.rpc('vac_feriados_2026');
-  if (error) throw new Error(error.message || 'Error leyendo feriados');
-
-  HOLIDAYS_2026 = new Set((Array.isArray(data) ? data : [])
+async function loadHolidays(year){
+  if (HOLIDAYS_BY_YEAR.has(year)) return HOLIDAYS_BY_YEAR.get(year);
+  let result = await supabase.rpc('vac_holidays', { p_year: year });
+  if (result.error && year === 2026) result = await supabase.rpc('vac_feriados_2026');
+  const { data, error } = result;
+  if (error) throw new Error(error.message || `Error leyendo feriados ${year}`);
+  const holidays = new Set((Array.isArray(data) ? data : [])
     .map(row => String(row?.d || '').slice(0, 10))
     .filter(Boolean));
-  return HOLIDAYS_2026;
+  HOLIDAYS_BY_YEAR.set(year, holidays);
+  return holidays;
 }
 
 async function loadRangeRows(fromDate, toDate){
-  const holidays = await loadHolidays2026();
+  const firstYear = fromDate.getUTCFullYear();
+  const lastYear = toDate.getUTCFullYear();
+  const holidaySets = await Promise.all(
+    Array.from({ length: lastYear - firstYear + 1 }, (_, i) => loadHolidays(firstYear + i))
+  );
+  const holidays = new Set(holidaySets.flatMap(set => [...set]));
   const months = monthsBetweenUTC(fromDate, toDate);
   const all = [];
   for(const m of months){
@@ -418,23 +426,38 @@ function buildSummaryFallback(empId){
   };
 }
 
-async function loadSummariesForEmployees(empIds){
+async function loadSummariesForEmployees(empIds, year){
   const uniqueIds = Array.from(new Set((empIds || []).filter(Boolean)));
-  const missing = uniqueIds.filter(id => !SUMMARY_CACHE.has(id));
+  const keyOf = id => `${year}:${id}`;
+  const missing = uniqueIds.filter(id => !SUMMARY_CACHE.has(keyOf(id)));
   if (missing.length){
     const loaded = await Promise.all(missing.map(async (empId) => {
       try {
-        const { data, error } = await supabase.rpc('employees_vac_summary_2026', { emp_id: empId });
+        let { data, error } = await supabase.rpc('employees_vac_summary', {
+          p_emp_id: empId,
+          p_year: year
+        });
+        if (error && year === 2026) {
+          const legacy = await supabase.rpc('employees_vac_summary_2026', { emp_id: empId });
+          error = legacy.error;
+          data = legacy.data;
+        }
         if (error) throw error;
-        const row = (Array.isArray(data) && data[0]) ? data[0] : {};
-        SUMMARY_CACHE.set(empId, { ...buildSummaryFallback(empId), ...row, employee_id: empId });
+        const source = (Array.isArray(data) && data[0]) ? data[0] : {};
+        const row = source.base_entitlement !== undefined ? {
+          ...source,
+          cupo_visible: source.available,
+          usado_2026: source.used,
+          restante_visible: source.remaining
+        } : source;
+        SUMMARY_CACHE.set(keyOf(empId), { ...buildSummaryFallback(empId), ...row, employee_id: empId });
       } catch (_err) {
-        SUMMARY_CACHE.set(empId, buildSummaryFallback(empId));
+        SUMMARY_CACHE.set(keyOf(empId), buildSummaryFallback(empId));
       }
     }));
     void loaded;
   }
-  return uniqueIds.map(id => SUMMARY_CACHE.get(id) || buildSummaryFallback(id));
+  return uniqueIds.map(id => SUMMARY_CACHE.get(keyOf(id)) || buildSummaryFallback(id));
 }
 
 function renderEmployeeSummaryList($root, items, emptyText){
@@ -550,7 +573,7 @@ async function refresh(){
     const blocks = applyFiltersToBlocks(allBlocks);
 
     const employeeIds = selectedEmployeeIds();
-    const annualYear = 2026;
+    const annualYear = SUMMARY_YEAR;
     const annualRows = await loadRangeRows(yearStartUTC(annualYear), yearEndUTC(annualYear));
     const annualBlocksAll = buildBlocks(annualRows);
     const annualBlocksByEmp = new Map();
@@ -559,7 +582,7 @@ async function refresh(){
       annualBlocksByEmp.get(block.employee_id).push(block);
     }
 
-    const summaries = await loadSummariesForEmployees(employeeIds);
+    const summaries = await loadSummariesForEmployees(employeeIds, annualYear);
     const summariesEnriched = summaries.map(s => {
       const empBlocks = annualBlocksByEmp.get(s.employee_id) || [];
       const hasPendingRequest = empBlocks.some(b => b.status === 'Pendiente');
@@ -823,11 +846,26 @@ function queueRefresh(){
 [$status, $bodega, $depto, $loc, $pendingBodega].forEach(el => el && el.addEventListener('change', queueRefresh));
 $q.addEventListener('input', queueRefresh);
 $refresh.addEventListener('click', refresh);
+$summaryYear.addEventListener('change', () => {
+  SUMMARY_YEAR = Number($summaryYear.value) || SUMMARY_YEAR;
+  document.querySelectorAll('.summary-year-label').forEach(el => el.textContent = String(SUMMARY_YEAR));
+  refresh();
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Init
 // ─────────────────────────────────────────────────────────────────────────────
 (async function init(){
+  const { data: years, error: yearsError } = await supabase.rpc('vacation_years_list');
+  const activeYears = !yearsError && Array.isArray(years)
+    ? years.filter(y => y.is_active).map(y => Number(y.year)).filter(Number.isFinite)
+    : [2026];
+  SUMMARY_YEAR = activeYears.includes(new Date().getFullYear())
+    ? new Date().getFullYear()
+    : activeYears[activeYears.length - 1];
+  $summaryYear.innerHTML = activeYears.map(y => `<option value="${y}">${y}</option>`).join('');
+  $summaryYear.value = String(SUMMARY_YEAR);
+  document.querySelectorAll('.summary-year-label').forEach(el => el.textContent = String(SUMMARY_YEAR));
   syncDateInputsWithRange();
   await loadEmployees();
   await refresh();
