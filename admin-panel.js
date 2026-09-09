@@ -1095,6 +1095,30 @@ async function authorizeFromModal() {
   if (!req) return;
   if (!confirm('¿Autorizar esta solicitud?')) return;
 
+  // El Panel Administrador conserva su facultad excepcional: autorizar aun
+  // cuando la solicitud no cumpla las reglas operativas del flujo normal.
+  const forceResult = await supabase.rpc("vacation_requests_approve_admin_force", { req_id: req.id });
+  if (!forceResult.error && forceResult.data === true) {
+    COVERAGE_CTX.changed = true;
+    await closeCoverageModal();
+    return;
+  }
+
+  // Compatibilidad únicamente si el RPC administrativo no existe.
+  const forceMissing = forceResult.error && (
+    forceResult.error.code === "PGRST202" ||
+    forceResult.error.code === "42883" ||
+    /vacation_requests_approve_admin_force/i.test(forceResult.error.message || "")
+  );
+  if (!forceMissing) {
+    if (coverModalMsg) {
+      coverModalMsg.textContent = 'No se pudo autorizar como administrador: '
+        + (forceResult.error?.message || 'RPC devolvió falso');
+      coverModalMsg.className = 'msg err';
+    }
+    return;
+  }
+
   const { data, error } = await supabase.rpc("vacation_requests_approve", { req_id: req.id });
   if (error || data !== true) {
     if (coverModalMsg) {
@@ -1173,9 +1197,30 @@ window.editDate = async (id, start, end) => {
   const newEnd   = prompt("Nueva fecha de fin (YYYY-MM-DD):", end);
   if (!newStart || !newEnd) return;
 
-  // La edición normal sólo acepta solicitudes Pendientes. El RPC administrativo
-  // permite editar cualquier estado, pero conserva las validaciones del trigger
-  // (año activo, saldo disponible, traslapes y fechas bloqueadas).
+  // En el Panel Administrador la edición forzada es intencional: permite mover
+  // solicitudes de cualquier estado aunque no haya saldo o exista un empalme.
+  const forceResult = await supabase.rpc("vacation_requests_update_dates_admin_force", {
+    req_id: id, new_start: newStart, new_end: newEnd
+  });
+
+  if (!forceResult.error && forceResult.data === true) {
+    await loadVacations();
+    return;
+  }
+
+  const forceMissing = forceResult.error && (
+    forceResult.error.code === "PGRST202" ||
+    forceResult.error.code === "42883" ||
+    /vacation_requests_update_dates_admin_force/i.test(forceResult.error.message || "")
+  );
+
+  if (!forceMissing) {
+    alert("No se pudo editar como administrador: "
+      + (forceResult.error?.message || "RPC devolvió falso"));
+    return;
+  }
+
+  // Compatibilidad con instalaciones que aún no tengan el RPC force.
   const adminResult = await supabase.rpc("vacation_requests_update_dates_admin", {
     req_id: id, new_start: newStart, new_end: newEnd
   });
@@ -1185,32 +1230,17 @@ window.editDate = async (id, start, end) => {
     return;
   }
 
-  const adminRpcMissing = adminResult.error && (
-    adminResult.error.code === "PGRST202" ||
-    adminResult.error.code === "42883" ||
-    /vacation_requests_update_dates_admin/i.test(adminResult.error.message || "")
-  );
-
-  if (!adminRpcMissing) {
-    alert("No se pudo editar: " + (adminResult.error?.message || "RPC devolvió falso"));
-    return;
-  }
-
-  // Compatibilidad mientras se instala el parche: las solicitudes Pendientes
-  // pueden seguir usando la función normal. No se usa el antiguo RPC
-  // "admin_force" porque omitía todas las validaciones.
   const normalResult = await supabase.rpc("vacation_requests_update_dates", {
     req_id: id, new_start: newStart, new_end: newEnd
   });
-
   if (!normalResult.error && normalResult.data === true) {
     await loadVacations();
     return;
   }
 
-  const detail = normalResult.error?.message || adminResult.error?.message || "RPC devolvió falso";
-  alert("No se pudo editar: " + detail
-    + " Instala primero el archivo SQL 20260908_corregir_edicion_fechas_admin.sql.");
+  const detail = adminResult.error?.message || normalResult.error?.message
+    || forceResult.error?.message || "RPC devolvió falso";
+  alert("No se pudo editar: " + detail);
 };
 
 
@@ -1810,8 +1840,28 @@ async function createVacationRequestFromForm() {
   if (e < s) throw new Error('La fecha fin no puede ser menor a la inicial.');
   if (s.slice(0, 4) !== e.slice(0, 4)) throw new Error('La solicitud debe quedar dentro de un solo año.');
 
-  const { data: createdId, error } = await supabase.rpc('vacation_requests_create', { emp_id: empId, s, e });
-  if (error || !createdId) throw (error || new Error('RPC devolvió nulo'));
+  // Alta administrativa: primero usa el RPC excepcional que omite saldo,
+  // empalmes y demás reglas operativas. El límite de un solo año se conserva
+  // porque es parte de la estructura del sistema multiaño.
+  const forceResult = await supabase.rpc('vacation_requests_create_admin_force', {
+    emp_id: empId, s, e, auto_approve: false
+  });
+  let createdId = (!forceResult.error && forceResult.data) ? forceResult.data : null;
+
+  if (!createdId) {
+    const forceMissing = forceResult.error && (
+      forceResult.error.code === 'PGRST202' ||
+      forceResult.error.code === '42883' ||
+      /vacation_requests_create_admin_force/i.test(forceResult.error.message || '')
+    );
+    if (!forceMissing) {
+      throw (forceResult.error || new Error('RPC administrativo devolvió nulo'));
+    }
+
+    const { data, error } = await supabase.rpc('vacation_requests_create', { emp_id: empId, s, e });
+    if (error || !data) throw (error || new Error('RPC devolvió nulo'));
+    createdId = data;
+  }
 
   const selectedName = (vacEmpSearch?.dataset.selectedName || vacEmpSearch?.value || '').trim();
   return {
