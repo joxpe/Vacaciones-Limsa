@@ -5,6 +5,7 @@
 //   vacation_requests_approve_with_cover(req_id uuid, cover_emp_id uuid) -> boolean
 //   vacation_requests_reject(req_id uuid) -> boolean
 //   vacation_requests_update_dates(req_id uuid, new_start date, new_end date) -> boolean
+//   vacation_requests_update_dates_admin(req_id uuid, new_start date, new_end date) -> boolean
 //   vacation_requests_unapprove(req_id uuid) -> boolean
 //   vacation_requests_create(emp_id uuid, s date, e date) -> uuid
 //   vacation_requests_create_admin_force(emp_id uuid, s date, e date, auto_approve boolean DEFAULT false) -> uuid
@@ -1172,15 +1173,44 @@ window.editDate = async (id, start, end) => {
   const newEnd   = prompt("Nueva fecha de fin (YYYY-MM-DD):", end);
   if (!newStart || !newEnd) return;
 
-  const { data, error } = await supabase.rpc("vacation_requests_update_dates", {
+  // La edición normal sólo acepta solicitudes Pendientes. El RPC administrativo
+  // permite editar cualquier estado, pero conserva las validaciones del trigger
+  // (año activo, saldo disponible, traslapes y fechas bloqueadas).
+  const adminResult = await supabase.rpc("vacation_requests_update_dates_admin", {
     req_id: id, new_start: newStart, new_end: newEnd
   });
-  if (error || data !== true) {
-    alert("No se pudo editar: " + (error?.message || "RPC devolvió falso"));
+
+  if (!adminResult.error && adminResult.data === true) {
+    await loadVacations();
     return;
   }
 
-  await loadVacations();
+  const adminRpcMissing = adminResult.error && (
+    adminResult.error.code === "PGRST202" ||
+    adminResult.error.code === "42883" ||
+    /vacation_requests_update_dates_admin/i.test(adminResult.error.message || "")
+  );
+
+  if (!adminRpcMissing) {
+    alert("No se pudo editar: " + (adminResult.error?.message || "RPC devolvió falso"));
+    return;
+  }
+
+  // Compatibilidad mientras se instala el parche: las solicitudes Pendientes
+  // pueden seguir usando la función normal. No se usa el antiguo RPC
+  // "admin_force" porque omitía todas las validaciones.
+  const normalResult = await supabase.rpc("vacation_requests_update_dates", {
+    req_id: id, new_start: newStart, new_end: newEnd
+  });
+
+  if (!normalResult.error && normalResult.data === true) {
+    await loadVacations();
+    return;
+  }
+
+  const detail = normalResult.error?.message || adminResult.error?.message || "RPC devolvió falso";
+  alert("No se pudo editar: " + detail
+    + " Instala primero el archivo SQL 20260908_corregir_edicion_fechas_admin.sql.");
 };
 
 
