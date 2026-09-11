@@ -169,9 +169,11 @@ async function loadEmployeeVacationRows(empId, year = CURRENT_YEAR){
 }
 
 function computeVisibleRemaining(summary, rows){
-  const cupoVis = (typeof summary?.cupo_visible === 'number')
-    ? summary.cupo_visible
-    : (summary?.cupo_2026 ?? 0);
+  const cupoVis = (typeof summary?.available === 'number')
+    ? summary.available
+    : (typeof summary?.cupo_visible === 'number')
+      ? summary.cupo_visible
+      : ((summary?.base_entitlement ?? summary?.cupo_2026 ?? 0) + (summary?.carryover ?? 0));
 
   const discountStatuses = new Set(['Pendiente', 'Pre-aprobado', 'Aprobado']);
   let discountedDays = 0;
@@ -181,7 +183,9 @@ function computeVisibleRemaining(summary, rows){
     discountedDays += Number.isFinite(biz) && biz > 0 ? biz : countDaysInclusive(r?.start_date, r?.end_date);
   }
 
-  return Math.max(0, cupoVis - discountedDays);
+  // Las altas administrativas pueden exceder el saldo. Mostrar el resultado
+  // real permite identificar el déficit (por ejemplo, 22 - 24 = -2).
+  return cupoVis - discountedDays;
 }
 
 function lastDayOfMonth(date){
@@ -290,8 +294,10 @@ async function loadEmployeeInfo(empId){
   };
 
   let requestRows = [];
+  let requestRowsLoaded = false;
   try {
     requestRows = await loadEmployeeVacationRows(empId, CURRENT_YEAR);
+    requestRowsLoaded = true;
   } catch (_e) {
     requestRows = [];
   }
@@ -305,11 +311,14 @@ async function loadEmployeeInfo(empId){
     $antig.textContent = yearsMonthsLabel(info?.fecha_ingreso, new Date());
   }
 
-  $cupo.textContent = summary?.base_entitlement ?? 0;
+  $cupo.textContent = summary?.base_entitlement ?? summary?.cupo_2026 ?? 0;
   $carryover.textContent = summary?.carryover ?? 0;
-  $available.textContent = summary?.available ?? 0;
-  $usado.textContent = summary?.used ?? 0;
-  $restante.textContent = summary?.remaining ?? 0;
+  $available.textContent = summary?.available ?? summary?.cupo_visible ?? 0;
+  $usado.textContent = summary?.used ?? summary?.usado_2026 ?? 0;
+  const backendRemaining = summary?.remaining ?? summary?.restante_visible ?? summary?.restante_2026 ?? 0;
+  $restante.textContent = requestRowsLoaded
+    ? computeVisibleRemaining(summary, requestRows)
+    : backendRemaining;
   $eligible.textContent = fmt(summary?.eligible_from);
 
   showMsg('', true);
