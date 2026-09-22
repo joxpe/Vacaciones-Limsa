@@ -188,6 +188,15 @@ function computeVisibleRemaining(summary, rows){
   return cupoVis - discountedDays;
 }
 
+// Un colaborador contratado dentro del periodo no genera saldo en ese mismo
+// año. Esta comprobación mantiene la pantalla consistente mientras Supabase
+// devuelve el saldo y también protege contra datos históricos mal calculados.
+function isEligibleInSelectedYear(summary){
+  const eligibleFrom = String(summary?.eligible_from || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(eligibleFrom)) return true;
+  return eligibleFrom <= `${CURRENT_YEAR}-12-31`;
+}
+
 function lastDayOfMonth(date){
   return new Date(date.getFullYear(), date.getMonth() + 1, 0);
 }
@@ -311,14 +320,17 @@ async function loadEmployeeInfo(empId){
     $antig.textContent = yearsMonthsLabel(info?.fecha_ingreso, new Date());
   }
 
-  $cupo.textContent = summary?.base_entitlement ?? summary?.cupo_2026 ?? 0;
-  $carryover.textContent = summary?.carryover ?? 0;
-  $available.textContent = summary?.available ?? summary?.cupo_visible ?? 0;
+  const eligibleThisYear = isEligibleInSelectedYear(summary);
+  const baseEntitlement = summary?.base_entitlement ?? summary?.cupo_2026 ?? 0;
+  const available = summary?.available ?? summary?.cupo_visible ?? 0;
+  $cupo.textContent = eligibleThisYear ? baseEntitlement : 0;
+  $carryover.textContent = eligibleThisYear ? (summary?.carryover ?? 0) : 0;
+  $available.textContent = eligibleThisYear ? available : 0;
   $usado.textContent = summary?.used ?? summary?.usado_2026 ?? 0;
   const backendRemaining = summary?.remaining ?? summary?.restante_visible ?? summary?.restante_2026 ?? 0;
-  $restante.textContent = requestRowsLoaded
-    ? computeVisibleRemaining(summary, requestRows)
-    : backendRemaining;
+  $restante.textContent = eligibleThisYear
+    ? (requestRowsLoaded ? computeVisibleRemaining(summary, requestRows) : backendRemaining)
+    : 0;
   $eligible.textContent = fmt(summary?.eligible_from);
 
   showMsg('', true);
