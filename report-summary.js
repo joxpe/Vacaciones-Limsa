@@ -395,6 +395,13 @@ function isEligibleInYear(summary, year){
   if (!/^\d{4}-\d{2}-\d{2}$/.test(eligibleFrom)) return true;
   return eligibleFrom <= `${year}-12-31`;
 }
+function isCurrentlyEligible(summary){
+  const eligibleFrom = String(summary?.eligible_from ?? summary?.elegible_desde ?? '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(eligibleFrom)) return true;
+  const now = new Date();
+  const today = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+  return eligibleFrom <= today;
+}
 function selectedEmployeeIds(){
   const q = normTxt($q.value);
   const bod = $bodega.value;
@@ -450,17 +457,18 @@ async function loadSummariesForEmployees(empIds, year){
         if (error) throw error;
         const source = (Array.isArray(data) && data[0]) ? data[0] : {};
         const eligibleThisYear = isEligibleInYear(source, year);
+        const eligibleNow = eligibleThisYear && isCurrentlyEligible(source);
         const row = source.base_entitlement !== undefined ? {
           ...source,
           base_entitlement: eligibleThisYear ? source.base_entitlement : 0,
           carryover: eligibleThisYear ? source.carryover : 0,
-          cupo_visible: eligibleThisYear ? source.available : 0,
+          cupo_visible: eligibleNow ? source.available : 0,
           usado_2026: source.used,
-          restante_visible: eligibleThisYear ? source.remaining : 0
+          restante_visible: eligibleNow ? source.remaining : 0
         } : {
           ...source,
-          cupo_visible: eligibleThisYear ? source.cupo_visible : 0,
-          restante_visible: eligibleThisYear ? source.restante_visible : 0
+          cupo_visible: eligibleNow ? source.cupo_visible : 0,
+          restante_visible: eligibleNow ? source.restante_visible : 0
         };
         SUMMARY_CACHE.set(keyOf(empId), { ...buildSummaryFallback(empId), ...row, employee_id: empId });
       } catch (_err) {

@@ -197,6 +197,14 @@ function isEligibleInSelectedYear(summary){
   return eligibleFrom <= `${CURRENT_YEAR}-12-31`;
 }
 
+function isCurrentlyEligible(summary){
+  const eligibleFrom = String(summary?.eligible_from || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(eligibleFrom)) return true;
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  return eligibleFrom <= today;
+}
+
 function lastDayOfMonth(date){
   return new Date(date.getFullYear(), date.getMonth() + 1, 0);
 }
@@ -321,14 +329,15 @@ async function loadEmployeeInfo(empId){
   }
 
   const eligibleThisYear = isEligibleInSelectedYear(summary);
+  const eligibleNow = eligibleThisYear && isCurrentlyEligible(summary);
   const baseEntitlement = summary?.base_entitlement ?? summary?.cupo_2026 ?? 0;
   const available = summary?.available ?? summary?.cupo_visible ?? 0;
   $cupo.textContent = eligibleThisYear ? baseEntitlement : 0;
   $carryover.textContent = eligibleThisYear ? (summary?.carryover ?? 0) : 0;
-  $available.textContent = eligibleThisYear ? available : 0;
+  $available.textContent = eligibleNow ? available : 0;
   $usado.textContent = summary?.used ?? summary?.usado_2026 ?? 0;
   const backendRemaining = summary?.remaining ?? summary?.restante_visible ?? summary?.restante_2026 ?? 0;
-  $restante.textContent = eligibleThisYear
+  $restante.textContent = eligibleNow
     ? (requestRowsLoaded ? computeVisibleRemaining(summary, requestRows) : backendRemaining)
     : 0;
   $eligible.textContent = fmt(summary?.eligible_from);
